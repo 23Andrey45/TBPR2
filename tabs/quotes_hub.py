@@ -1,7 +1,9 @@
-# tabs/quotes_hub.py
 from __future__ import annotations
 
+import threading
+import traceback
 from datetime import datetime, timezone
+from queue import Queue
 from time import perf_counter
 from typing import Optional
 
@@ -12,38 +14,59 @@ from core.instruments_catalog import InstrumentInfo
 from tabs.instruments_controller import InstrumentsController
 
 
-class _QuotesLoader(QtCore.QObject):
-    loaded = QtCore.pyqtSignal(object)  # dict[str, float]
+class _QuotesWorker(QtCore.QObject):
+    loaded = QtCore.pyqtSignal(object)  # dict: {"seq": int, "prices": dict[str, float]}
     error = QtCore.pyqtSignal(str)
-    finished = QtCore.pyqtSignal()
 
-    def __init__(self, token: str, key_and_figi: list[tuple[str, str]]):
+    REQUEST_TIMEOUT_SEC = 8.0
+
+    def __init__(self, token: str):
         super().__init__()
         self.token = token
-        self.key_and_figi = key_and_figi
-
-    def _dbg(self, msg: str):
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        print(f"[quotes:{ts}] {msg}")
+        self._stopping = False
 
     @QtCore.pyqtSlot()
-    def run(self):
-        t0 = perf_counter()
-        self._dbg(f"worker start figis={len(self.key_and_figi)}")
-        try:
-            self.loaded.emit(self._load())
-        except Exception:
-            import traceback
+    def stop(self):
+        self._stopping = True
 
-            self.error.emit(traceback.format_exc())
-        finally:
-            dt = perf_counter() - t0
-            self._dbg(f"worker finished in {dt:.3f}s")
-            self.finished.emit()
+    @QtCore.pyqtSlot(int, object)
+    def fetch(self, seq: int, key_and_figi: list[tuple[str, str]]):
+        if self._stopping:
+            return
+        if not key_and_figi:
+            self.loaded.emit({"seq": seq, "prices": {}})
+            return
 
-    def _load(self) -> dict[str, float]:
-        figi_to_key = {figi: key for key, figi in self.key_and_figi}
-        figis = [figi for _, figi in self.key_and_figi]
+        result_queue: Queue = Queue(maxsize=1)
+
+        def _task():
+            try:
+                prices = self._load_prices(key_and_figi)
+                result_queue.put((prices, None))
+            except Exception:
+                result_queue.put((None, traceback.format_exc()))
+
+        call_thread = threading.Thread(target=_task, daemon=True)
+        call_thread.start()
+        call_thread.join(timeout=self.REQUEST_TIMEOUT_SEC)
+
+        if call_thread.is_alive():
+            self.error.emit(
+                f"quotes request timeout after {self.REQUEST_TIMEOUT_SEC:.1f}s "
+                f"(payload={len(key_and_figi)})"
+            )
+            return
+
+        prices, err = result_queue.get()
+        if err:
+            self.error.emit(err)
+            return
+
+        self.loaded.emit({"seq": seq, "prices": prices})
+
+    def _load_prices(self, key_and_figi: list[tuple[str, str]]) -> dict[str, float]:
+        figi_to_key = {figi: key for key, figi in key_and_figi}
+        figis = [figi for _, figi in key_and_figi]
         out: dict[str, float] = {}
 
         with Client(token=self.token) as client:
@@ -69,14 +92,25 @@ class QuotesHub(QtCore.QObject):
     quotes_updated = QtCore.pyqtSignal(object)  # dict[str, float], key = InstrumentInfo.fav_key()
     error = QtCore.pyqtSignal(str)
 
+    # Bridge signal to worker thread.
+    _request_fetch = QtCore.pyqtSignal(int, object)
+
     def __init__(self, token: str, instruments_controller: InstrumentsController, parent=None):
         super().__init__(parent)
         self.token = token
         self.instruments_controller = instruments_controller
         self._prices: dict[str, float] = {}
-        self._thread: Optional[QtCore.QThread] = None
-        self._worker = None
         self._refresh_seq = 0
+        self._in_flight = False
+
+        self._thread = QtCore.QThread(self)
+        self._worker = _QuotesWorker(self.token)
+        self._worker.moveToThread(self._thread)
+        self._thread.start()
+
+        self._request_fetch.connect(self._worker.fetch)
+        self._worker.loaded.connect(self._on_loaded)
+        self._worker.error.connect(self._on_worker_error)
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(3000)
@@ -89,17 +123,26 @@ class QuotesHub(QtCore.QObject):
         self._timer.start()
         self.request_refresh()
 
-    def stop(self):
+    def stop(self, wait_ms: int = 2000):
         self._dbg("stop")
         self._timer.stop()
+        self._in_flight = False
+
+        try:
+            QtCore.QMetaObject.invokeMethod(self._worker, "stop", QtCore.Qt.ConnectionType.QueuedConnection)
+        except Exception:
+            pass
+
+        self._thread.quit()
+        self._thread.wait(wait_ms)
 
     def _dbg(self, msg: str):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"[quotes-hub:{ts}] {msg}")
 
     def request_refresh(self):
-        if self._thread and self._thread.isRunning():
-            self._dbg("skip refresh: previous worker still running")
+        if self._in_flight:
+            self._dbg("skip refresh: previous request is still running")
             return
 
         payload: list[tuple[str, str]] = []
@@ -113,34 +156,35 @@ class QuotesHub(QtCore.QObject):
             return
 
         self._refresh_seq += 1
+        self._in_flight = True
+        self._sent_at = perf_counter()
         self._dbg(f"refresh #{self._refresh_seq} payload={len(payload)}")
+        self._request_fetch.emit(self._refresh_seq, payload)
 
-        self._thread = QtCore.QThread(self)
-        self._worker = _QuotesLoader(self.token, payload)
-        self._worker.moveToThread(self._thread)
+    @QtCore.pyqtSlot(object)
+    def _on_loaded(self, payload: dict):
+        seq = int(payload.get("seq", 0) or 0)
+        prices = payload.get("prices", {}) or {}
 
-        self._thread.started.connect(self._worker.run)
-        self._worker.loaded.connect(self._on_loaded)
-        self._worker.error.connect(self.error.emit)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.finished.connect(self._on_finished)
-
-        self._thread.start()
-
-    def _on_loaded(self, prices: dict[str, float]):
-        if not prices:
-            self._dbg("loaded: no prices returned")
+        if seq != self._refresh_seq:
+            self._dbg(f"ignore stale payload seq={seq}, current={self._refresh_seq}")
             return
-        self._prices.update(prices)
-        self._dbg(f"loaded: prices={len(prices)} cached={len(self._prices)}")
-        self.quotes_updated.emit(dict(self._prices))
 
-    def _on_finished(self):
-        self._dbg("worker references cleared")
-        self._worker = None
-        self._thread = None
+        self._in_flight = False
+        dt = perf_counter() - getattr(self, "_sent_at", perf_counter())
+
+        if prices:
+            self._prices.update(prices)
+            self.quotes_updated.emit(dict(self._prices))
+            self._dbg(f"loaded prices={len(prices)} cached={len(self._prices)} in {dt:.3f}s")
+            return
+
+        self._dbg(f"loaded empty prices in {dt:.3f}s")
+
+    @QtCore.pyqtSlot(str)
+    def _on_worker_error(self, err: str):
+        self._in_flight = False
+        self.error.emit(err)
 
     def get_price(self, info: InstrumentInfo) -> Optional[float]:
         return self._prices.get(info.fav_key())
