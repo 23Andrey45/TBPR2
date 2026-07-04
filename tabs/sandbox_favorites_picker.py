@@ -1,32 +1,104 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from PyQt6 import QtCore, QtWidgets
 from t_tech.invest import Client
 
-from app.config import FAVORITES_FILE, TOKEN
+from app.config import TOKEN
 from core.instruments_catalog import InstrumentInfo
 from tabs.instruments_controller import InstrumentsController
 from tabs.quotes_hub import QuotesHub
 
 
+class _FavoritesPositionsLoader(QtCore.QObject):
+    loaded = QtCore.pyqtSignal(object)  # dict[str, float], key=figi
+    error = QtCore.pyqtSignal(str)
+    finished = QtCore.pyqtSignal()
+
+    def __init__(self, token: str, account_id: str):
+        super().__init__()
+        self.token = token
+        self.account_id = account_id
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        try:
+            self.loaded.emit(self._load_positions())
+        except Exception:
+            import traceback
+
+            self.error.emit(traceback.format_exc())
+        finally:
+            self.finished.emit()
+
+    def _load_positions(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+
+        # Preferred path: project API wrapper.
+        try:
+            from core.sandbox_trading_api import get_sandbox_portfolio
+
+            rows = get_sandbox_portfolio(self.token, self.account_id)
+            for row in rows:
+                figi = str(getattr(row, "figi", "") or "").strip()
+                qty = float(getattr(row, "quantity", 0.0) or 0.0)
+                if figi:
+                    out[figi] = qty
+            return out
+        except Exception:
+            pass
+
+        # Fallback path via raw SDK method.
+        with Client(token=self.token) as client:
+            sb = getattr(client, "sandbox", None)
+            if sb is None:
+                return out
+
+            method = getattr(sb, "get_sandbox_portfolio", None)
+            if method is None:
+                return out
+
+            try:
+                resp = method(account_id=self.account_id)
+            except TypeError:
+                return out
+
+            positions = list(getattr(resp, "positions", []) or [])
+            for pos in positions:
+                figi = str(getattr(pos, "figi", "") or "").strip()
+                qty = float(getattr(pos, "quantity", 0.0) or 0.0)
+                if figi:
+                    out[figi] = qty
+
+        return out
+
+
 class FavoritesOnlyPicker(QtWidgets.QWidget):
     instrument_selected = QtCore.pyqtSignal(object)
 
-    def __init__(self, controller: InstrumentsController, quotes_hub: QuotesHub, parent=None):
+    def __init__(
+        self,
+        controller: InstrumentsController,
+        quotes_hub: QuotesHub,
+        trading_context: Any = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.controller = controller
         self.quotes_hub = quotes_hub
+        self.trading_context = trading_context if trading_context is not None else getattr(parent, "trading_context", None)
+
         self._selected: Optional[InstrumentInfo] = None
-        self._qty_by_key: dict[str, int] = self._load_quantities()
         self._price_by_key: dict[str, str] = {}
+        self._qty_by_figi: dict[str, float] = {}
+        self._account_id = str(getattr(self.trading_context, "account_id", "") or "")
+        self._qty_thread: Optional[QtCore.QThread] = None
+        self._qty_worker = None
 
         self.lbl = QtWidgets.QLabel("Избранное")
-        self.btn_refresh_prices = QtWidgets.QPushButton("Обновить")
-        self.btn_save_qty = QtWidgets.QPushButton("Сохранить")
+        self.btn_refresh_prices = QtWidgets.QPushButton("Обновить цены")
+        self.btn_refresh_qty = QtWidgets.QPushButton("Обновить количество")
 
         self.tbl_fav = QtWidgets.QTableWidget(0, 5)
         self.tbl_fav.setHorizontalHeaderLabels(["Type", "Инструмент", "ISIN", "Цена", "Количество"])
@@ -34,22 +106,18 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.tbl_fav.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_fav.setWordWrap(True)
         self.tbl_fav.verticalHeader().setDefaultSectionSize(44)
-        self.tbl_fav.setEditTriggers(
-            QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
-            | QtWidgets.QAbstractItemView.EditTrigger.SelectedClicked
-            | QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed
-        )
+        self.tbl_fav.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_fav.setColumnHidden(0, True)
         self.tbl_fav.setColumnHidden(2, True)
         self.tbl_fav.setColumnWidth(1, 250)
         self.tbl_fav.setColumnWidth(3, 100)
-        self.tbl_fav.setColumnWidth(4, 90)
+        self.tbl_fav.setColumnWidth(4, 120)
 
         top = QtWidgets.QHBoxLayout()
         top.addWidget(self.lbl)
         top.addStretch()
         top.addWidget(self.btn_refresh_prices)
-        top.addWidget(self.btn_save_qty)
+        top.addWidget(self.btn_refresh_qty)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(top)
@@ -58,9 +126,70 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.controller.favorites_updated.connect(self._on_favorites_updated)
         self.tbl_fav.cellDoubleClicked.connect(self._emit_selected)
         self.btn_refresh_prices.clicked.connect(self.quotes_hub.request_refresh)
-        self.btn_save_qty.clicked.connect(self._save_quantities)
+        self.btn_refresh_qty.clicked.connect(self.refresh_quantities)
         self.quotes_hub.quotes_updated.connect(self._on_quotes_updated)
+
+        if self.trading_context is not None and hasattr(self.trading_context, "account_changed"):
+            self.trading_context.account_changed.connect(self._on_account_changed)
+
         self.controller.emit_initial_state()
+        QtCore.QTimer.singleShot(0, self.refresh_quantities)
+
+    def _on_account_changed(self, account_id: str):
+        self._account_id = str(account_id or "")
+        self.refresh_quantities()
+
+    def refresh_quantities(self):
+        if self._qty_thread is not None and self._qty_thread.isRunning():
+            return
+
+        if not self._account_id:
+            self._qty_by_figi = {}
+            self._on_favorites_updated(self.controller.favorites())
+            return
+
+        self.lbl.setText("Избранное (обновляю количество...)")
+
+        self._qty_thread = QtCore.QThread(self)
+        self._qty_worker = _FavoritesPositionsLoader(TOKEN, self._account_id)
+        self._qty_worker.moveToThread(self._qty_thread)
+
+        self._qty_thread.started.connect(self._qty_worker.run)
+        self._qty_worker.loaded.connect(self._on_quantities_loaded)
+        self._qty_worker.error.connect(self._on_quantities_error)
+        self._qty_worker.finished.connect(self._qty_thread.quit)
+        self._qty_worker.finished.connect(self._qty_worker.deleteLater)
+        self._qty_thread.finished.connect(self._qty_thread.deleteLater)
+        self._qty_thread.finished.connect(self._cleanup_qty_worker)
+
+        self._qty_thread.start()
+
+    def _cleanup_qty_worker(self):
+        self._qty_worker = None
+        self._qty_thread = None
+
+    def _on_quantities_loaded(self, qty_by_figi: dict[str, float]):
+        self._qty_by_figi = qty_by_figi or {}
+        self.lbl.setText("Избранное")
+        self._on_favorites_updated(self.controller.favorites())
+
+    def _on_quantities_error(self, tb: str):
+        self.lbl.setText("Избранное (ошибка обновления количества, см. консоль)")
+        print("===== ERROR (_FavoritesOnlyPicker qty) =====")
+        print(tb)
+        print("============================================")
+
+    def _qty_for(self, info: InstrumentInfo) -> float:
+        figi = (info.figi or info.instrument_id or "").strip()
+        if not figi:
+            return 0.0
+        return float(self._qty_by_figi.get(figi, 0.0) or 0.0)
+
+    def _qty_text(self, info: InstrumentInfo) -> str:
+        q = self._qty_for(info)
+        if abs(q) < 1e-12:
+            return "0"
+        return f"{q:.6f}".rstrip("0").rstrip(".")
 
     def _on_favorites_updated(self, favs: list[InstrumentInfo]):
         self.tbl_fav.setRowCount(0)
@@ -71,18 +200,15 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
             self.tbl_fav.insertRow(r)
 
             key = info.fav_key()
-            qty = self._qty_by_key.get(key, 0)
             price = self._price_by_key.get(key, "-")
+            qty = self._qty_text(info)
 
             kind_letter = "S" if info.kind == "share" else ("E" if info.kind == "etf" else ("B" if info.kind == "bond" else "?"))
             type_item = QtWidgets.QTableWidgetItem(kind_letter)
             instrument_item = QtWidgets.QTableWidgetItem(f"{info.name}\n{kind_letter} | {info.ticker} | {info.isin}")
             isin_item = QtWidgets.QTableWidgetItem(info.isin)
             price_item = QtWidgets.QTableWidgetItem(price)
-            qty_item = QtWidgets.QTableWidgetItem(str(qty))
-
-            for item in (type_item, instrument_item, isin_item, price_item):
-                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            qty_item = QtWidgets.QTableWidgetItem(qty)
 
             self.tbl_fav.setItem(r, 0, type_item)
             self.tbl_fav.setItem(r, 1, instrument_item)
@@ -115,124 +241,6 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         if changed:
             self._on_favorites_updated(self.controller.favorites())
 
-    def _load_quantities(self) -> dict[str, int]:
-        path = Path(FAVORITES_FILE)
-        if not path.exists():
-            return {}
-
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-        out: dict[str, int] = {}
-        for item in payload.get("items", []) or []:
-            info = InstrumentInfo.from_dict(item)
-            key = info.fav_key()
-            try:
-                qty = int(item.get("qty", 0) or 0)
-            except Exception:
-                qty = 0
-            out[key] = max(0, qty)
-        return out
-
-    def _collect_quantities_from_table(self) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for row in range(self.tbl_fav.rowCount()):
-            info_item = self.tbl_fav.item(row, 0)
-            qty_item = self.tbl_fav.item(row, 4)
-            if info_item is None:
-                continue
-            info = info_item.data(QtCore.Qt.ItemDataRole.UserRole)
-            if info is None:
-                continue
-
-            raw = qty_item.text().strip() if qty_item is not None else "0"
-            try:
-                qty = int(raw)
-            except Exception:
-                qty = 0
-            out[info.fav_key()] = max(0, qty)
-        return out
-
-    def _save_quantities(self):
-        self._qty_by_key = self._collect_quantities_from_table()
-
-        items = []
-        for info in self.controller.favorites():
-            data = info.to_dict()
-            data["qty"] = self._qty_by_key.get(info.fav_key(), 0)
-            items.append(data)
-
-        path = Path(FAVORITES_FILE)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.lbl.setText("Избранное (количества сохранены)")
-
-    def _refresh_prices(self):
-        if self._price_thread and self._price_thread.isRunning():
-            return
-
-        payload: list[tuple[str, str]] = []
-        for info in self.controller.favorites():
-            figi = (info.figi or info.instrument_id or "").strip()
-            if figi:
-                payload.append((info.fav_key(), figi))
-
-        if not payload:
-            self.lbl.setText("Избранное (нет FIGI для обновления цен)")
-            return
-
-        self.lbl.setText("Избранное (обновляю цены...)")
-
-        self._price_thread = QtCore.QThread(self)
-        self._price_worker = _FavoritesPricesLoader(TOKEN, payload)
-        self._price_worker.moveToThread(self._price_thread)
-
-        self._price_thread.started.connect(self._price_worker.run)
-        self._price_worker.loaded.connect(self._on_prices_loaded)
-        self._price_worker.error.connect(self._on_prices_error)
-        self._price_worker.finished.connect(self._price_thread.quit)
-        self._price_worker.finished.connect(self._price_worker.deleteLater)
-        self._price_thread.finished.connect(self._price_thread.deleteLater)
-        self._price_thread.finished.connect(self._cleanup_price_worker)
-
-        self._price_thread.start()
-
-    def _on_prices_loaded(self, prices_by_key: dict[str, str]):
-        self._price_by_key = prices_by_key or {}
-        self.lbl.setText("Избранное (цены обновлены)")
-        self._on_favorites_updated(self.controller.favorites())
-
-    def _on_prices_error(self, tb: str):
-        self.lbl.setText("Избранное (ошибка обновления цен, см. консоль)")
-        print("===== ERROR (_FavoritesOnlyPicker prices) =====")
-        print(tb)
-        print("===============================================")
-
-    def _cleanup_price_worker(self):
-        self._price_worker = None
-        self._price_thread = None
-
-    def _fetch_single_price(self, figi: str) -> str:
-        try:
-            with Client(token=TOKEN) as client:
-                resp = client.market_data.get_last_prices(figi=[figi])
-                prices = list(getattr(resp, "last_prices", []) or [])
-                if not prices:
-                    return ""
-
-                p = getattr(prices[0], "price", None)
-                if p is None:
-                    return ""
-
-                units = int(getattr(p, "units", 0) or 0)
-                nano = int(getattr(p, "nano", 0) or 0)
-                val = units + nano / 1e9
-                return f"{val:.6f}".rstrip("0").rstrip(".")
-        except Exception:
-            return ""
-
     def _emit_selected(self, *_):
         sel = self.tbl_fav.selectionModel().selectedRows()
         if not sel:
@@ -248,53 +256,3 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def selected_instrument(self) -> Optional[InstrumentInfo]:
         return self._selected
-
-
-class _FavoritesPricesLoader(QtCore.QObject):
-    loaded = QtCore.pyqtSignal(object)
-    error = QtCore.pyqtSignal(str)
-    finished = QtCore.pyqtSignal()
-
-    def __init__(self, token: str, keys_and_figi: list[tuple[str, str]]):
-        super().__init__()
-        self.token = token
-        self.keys_and_figi = keys_and_figi
-
-    @QtCore.pyqtSlot()
-    def run(self):
-        try:
-            self.loaded.emit(self._load_prices())
-        except Exception:
-            import traceback
-
-            self.error.emit(traceback.format_exc())
-        finally:
-            self.finished.emit()
-
-    def _load_prices(self) -> dict[str, str]:
-        figis = [figi for _, figi in self.keys_and_figi]
-        figi_to_key = {figi: key for key, figi in self.keys_and_figi}
-        out: dict[str, str] = {}
-
-        with Client(token=self.token) as client:
-            resp = client.market_data.get_last_prices(figi=figis)
-            for lp in getattr(resp, "last_prices", []) or []:
-                figi = str(getattr(lp, "figi", "") or "")
-                key = figi_to_key.get(figi)
-                if not key:
-                    continue
-
-                p = getattr(lp, "price", None)
-                if p is None:
-                    out[key] = "-"
-                    continue
-
-                units = int(getattr(p, "units", 0) or 0)
-                nano = int(getattr(p, "nano", 0) or 0)
-                val = units + nano / 1e9
-                out[key] = f"{val:.6f}".rstrip("0").rstrip(".")
-
-        for key, _ in self.keys_and_figi:
-            out.setdefault(key, "-")
-
-        return out

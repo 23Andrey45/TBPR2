@@ -7,6 +7,7 @@ from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE
 from tabs.instruments_controller import InstrumentsController
 from tabs.quotes_hub import QuotesHub
 from tabs.tab_home import HomeTab
+from tabs.tab_journal import JournalTab
 from tabs.tab_robots import RobotsTab
 from tabs.tab_sandbox_trading import SandboxTradingTab
 from tabs.trading_context import TradingContext
@@ -25,6 +26,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.home_tab = None
         self.sandbox_trading_tab = None
+        self.journal_tab = None
         self.account_tab = None
 
         if not TOKEN:
@@ -59,10 +61,12 @@ class MainWindow(QtWidgets.QMainWindow):
             quotes_hub=self.quotes_hub,
             trading_context=self.trading_context,
         )
+        self.journal_tab = JournalTab(trading_context=self.trading_context)
 
         self.tabs.addTab(self.home_tab, "Инструманты")
         self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
         self.tabs.addTab(self.robots_tab, "Роботы")
+        self.tabs.addTab(self.journal_tab, "Журнал")
 
         if AccountTab is not None:
             self.account_tab = AccountTab()
@@ -111,6 +115,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if self.sandbox_trading_tab is not None:
                 self.sandbox_trading_tab.stop()
+        except Exception:
+            pass
+        try:
+            if self.journal_tab is not None:
+                self.journal_tab.stop()
         except Exception:
             pass
         super().closeEvent(event)

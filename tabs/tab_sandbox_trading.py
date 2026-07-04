@@ -107,7 +107,12 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self.instr_controller = instruments_controller
         self.quotes_hub = quotes_hub
         self.trading_context = trading_context
-        self.picker = FavoritesOnlyPicker(controller=self.instr_controller, quotes_hub=self.quotes_hub, parent=self)
+        self.picker = FavoritesOnlyPicker(
+            controller=self.instr_controller,
+            quotes_hub=self.quotes_hub,
+            trading_context=self.trading_context,
+            parent=self,
+        )
 
         self._selected_instrument: Optional[InstrumentInfo] = None
         self._account_id: str = ""
@@ -383,6 +388,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self.poll_active_orders()
         if self._deals_enabled:
             self._refresh_recent_deals()
+        self.picker.refresh_quantities()
 
     def _refresh_recent_deals(self):
         if not self._account_id or self._deals_loading:
@@ -410,6 +416,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._save_fills_cache()
 
         self._sync_orders_with_fills()
+        self.picker.refresh_quantities()
         self._render_tables()
 
     def poll_active_orders(self):
@@ -441,6 +448,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             )
         self._server_active_by_id = {o.order_id: o for o in orders if o.order_id}
         self._sync_orders_with_server()
+        self.picker.refresh_quantities()
         self._render_tables()
 
     def _append_history(
@@ -528,6 +536,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         if res.sent:
             QtCore.QTimer.singleShot(250, self.refresh_statuses)
             QtCore.QTimer.singleShot(300, self.refresh_balance)
+            QtCore.QTimer.singleShot(450, self.picker.refresh_quantities)
         else:
             self._render_tables()
 
