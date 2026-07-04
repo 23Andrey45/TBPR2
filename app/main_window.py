@@ -60,13 +60,13 @@ class MainWindow(QtWidgets.QMainWindow):
             trading_context=self.trading_context,
         )
 
-        self.tabs.addTab(self.home_tab, "Instrumenty")
-        self.tabs.addTab(self.sandbox_trading_tab, "Torgovlia")
-        self.tabs.addTab(self.robots_tab, "Roboty")
+        self.tabs.addTab(self.home_tab, "Инструманты")
+        self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
+        self.tabs.addTab(self.robots_tab, "Роботы")
 
         if AccountTab is not None:
             self.account_tab = AccountTab()
-            self.tabs.addTab(self.account_tab, "Scheta")
+            self.tabs.addTab(self.account_tab, "Счета")
 
         self._hb_t0 = perf_counter()
         self._hb_qtimer = QtCore.QTimer(self)
