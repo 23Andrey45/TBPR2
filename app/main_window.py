@@ -1,12 +1,12 @@
-# app/main_window.py
-from PyQt6 import QtCore, QtWidgets
 from datetime import datetime, timezone
 from time import perf_counter
 
+from PyQt6 import QtCore, QtWidgets
+
 from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE
 from tabs.instruments_controller import InstrumentsController
-from tabs.tab_home import HomeTab
 from tabs.quotes_hub import QuotesHub
+from tabs.tab_home import HomeTab
 from tabs.tab_robots import RobotsTab
 from tabs.tab_sandbox_trading import SandboxTradingTab
 from tabs.trading_context import TradingContext
@@ -20,7 +20,7 @@ except Exception:
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Моё приложение")
+        self.setWindowTitle("Moe prilozhenie")
         self.resize(1400, 800)
 
         self.home_tab = None
@@ -29,9 +29,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if not TOKEN:
             info = QtWidgets.QLabel(
-                "Токен не загружен.\n\n"
+                "Token ne zagruzhen.\n\n"
                 f"{TOKEN_ERROR}\n\n"
-                f"Файл токена: {TOKEN_FILE}"
+                f"Fail tokena: {TOKEN_FILE}"
             )
             info.setWordWrap(True)
             info.setMargin(20)
@@ -42,10 +42,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.tabs)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
-        # один общий контроллер инструментов
         self.instruments_controller = InstrumentsController(TOKEN, parent=self)
         self.trading_context = TradingContext(parent=self)
         self.quotes_hub = QuotesHub(TOKEN, self.instruments_controller, parent=self)
+        self.quotes_hub.error.connect(self._on_quotes_error)
         self.quotes_hub.start()
 
         self.home_tab = HomeTab(instruments_controller=self.instruments_controller)
@@ -60,13 +60,13 @@ class MainWindow(QtWidgets.QMainWindow):
             trading_context=self.trading_context,
         )
 
-        self.tabs.addTab(self.home_tab, "Инструманты")
-        self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
-        self.tabs.addTab(self.robots_tab, "Роборы")
+        self.tabs.addTab(self.home_tab, "Instrumenty")
+        self.tabs.addTab(self.sandbox_trading_tab, "Torgovlia")
+        self.tabs.addTab(self.robots_tab, "Roboty")
 
         if AccountTab is not None:
             self.account_tab = AccountTab()
-            self.tabs.addTab(self.account_tab, "Счета")
+            self.tabs.addTab(self.account_tab, "Scheta")
 
         self._hb_t0 = perf_counter()
         self._hb_qtimer = QtCore.QTimer(self)
@@ -77,13 +77,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def _heartbeat(self):
         dt = perf_counter() - self._hb_t0
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        print(f"[ui-heartbeat:{ts}] alive uptime={dt:.1f}s tab={self.tabs.currentIndex() if hasattr(self, 'tabs') else -1}")
+        print(
+            f"[ui-heartbeat:{ts}] alive uptime={dt:.1f}s "
+            f"tab={self.tabs.currentIndex() if hasattr(self, 'tabs') else -1}"
+        )
 
     def _on_tab_changed(self, index: int):
         if self.account_tab is None:
             return
         if self.tabs.widget(index) is self.account_tab:
             self.account_tab.refresh_accounts()
+
+    def _on_quotes_error(self, err: str):
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[quotes-error:{ts}] {err}")
 
     def closeEvent(self, event):
         try:
@@ -93,7 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         try:
             if hasattr(self, "quotes_hub") and self.quotes_hub is not None:
-                self.quotes_hub.stop()
+                self.quotes_hub.stop(wait_ms=3000)
         except Exception:
             pass
         try:
