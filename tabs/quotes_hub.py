@@ -15,7 +15,7 @@ from tabs.instruments_controller import InstrumentsController
 
 
 class _QuotesWorker(QtCore.QObject):
-    loaded = QtCore.pyqtSignal(object)  # dict: {"seq": int, "prices": dict[str, float]}
+    loaded = QtCore.pyqtSignal(object)  # dict: {"seq": int, "prices": dict[str, float], "by_figi": dict[str, float]}
     error = QtCore.pyqtSignal(str)
 
     REQUEST_TIMEOUT_SEC = 8.0
@@ -34,17 +34,17 @@ class _QuotesWorker(QtCore.QObject):
         if self._stopping:
             return
         if not key_and_figi:
-            self.loaded.emit({"seq": seq, "prices": {}})
+            self.loaded.emit({"seq": seq, "prices": {}, "by_figi": {}})
             return
 
         result_queue: Queue = Queue(maxsize=1)
 
         def _task():
             try:
-                prices = self._load_prices(key_and_figi)
-                result_queue.put((prices, None))
+                prices, by_figi = self._load_prices(key_and_figi)
+                result_queue.put((prices, by_figi, None))
             except Exception:
-                result_queue.put((None, traceback.format_exc()))
+                result_queue.put((None, None, traceback.format_exc()))
 
         call_thread = threading.Thread(target=_task, daemon=True)
         call_thread.start()
@@ -57,17 +57,18 @@ class _QuotesWorker(QtCore.QObject):
             )
             return
 
-        prices, err = result_queue.get()
+        prices, by_figi, err = result_queue.get()
         if err:
             self.error.emit(err)
             return
 
-        self.loaded.emit({"seq": seq, "prices": prices})
+        self.loaded.emit({"seq": seq, "prices": prices, "by_figi": by_figi})
 
-    def _load_prices(self, key_and_figi: list[tuple[str, str]]) -> dict[str, float]:
+    def _load_prices(self, key_and_figi: list[tuple[str, str]]) -> tuple[dict[str, float], dict[str, float]]:
         figi_to_key = {figi: key for key, figi in key_and_figi}
         figis = [figi for _, figi in key_and_figi]
         out: dict[str, float] = {}
+        by_figi: dict[str, float] = {}
 
         with Client(token=self.token) as client:
             resp = client.market_data.get_last_prices(figi=figis)
@@ -83,9 +84,11 @@ class _QuotesWorker(QtCore.QObject):
 
                 units = int(getattr(p, "units", 0) or 0)
                 nano = int(getattr(p, "nano", 0) or 0)
-                out[key] = units + nano / 1e9
+                price = units + nano / 1e9
+                out[key] = price
+                by_figi[figi] = price
 
-        return out
+        return out, by_figi
 
 
 class QuotesHub(QtCore.QObject):
@@ -100,6 +103,7 @@ class QuotesHub(QtCore.QObject):
         self.token = token
         self.instruments_controller = instruments_controller
         self._prices: dict[str, float] = {}
+        self._prices_by_figi: dict[str, float] = {}
         self._refresh_seq = 0
         self._in_flight = False
 
@@ -165,6 +169,7 @@ class QuotesHub(QtCore.QObject):
     def _on_loaded(self, payload: dict):
         seq = int(payload.get("seq", 0) or 0)
         prices = payload.get("prices", {}) or {}
+        by_figi = payload.get("by_figi", {}) or {}
 
         if seq != self._refresh_seq:
             self._dbg(f"ignore stale payload seq={seq}, current={self._refresh_seq}")
@@ -175,6 +180,18 @@ class QuotesHub(QtCore.QObject):
 
         if prices:
             self._prices.update(prices)
+            if by_figi:
+                self._prices_by_figi.update(by_figi)
+
+            # Keep key-based cache synchronized with current favorites through FIGI mapping.
+            for info in self.instruments_controller.favorites():
+                figi = (info.figi or info.instrument_id or "").strip()
+                if not figi:
+                    continue
+                p = self._prices_by_figi.get(figi)
+                if p is not None:
+                    self._prices[info.fav_key()] = p
+
             self.quotes_updated.emit(dict(self._prices))
             self._dbg(f"loaded prices={len(prices)} cached={len(self._prices)} in {dt:.3f}s")
             return
@@ -187,7 +204,17 @@ class QuotesHub(QtCore.QObject):
         self.error.emit(err)
 
     def get_price(self, info: InstrumentInfo) -> Optional[float]:
-        return self._prices.get(info.fav_key())
+        p = self._prices.get(info.fav_key())
+        if p is not None:
+            return p
+
+        figi = (info.figi or info.instrument_id or "").strip()
+        if figi:
+            p = self._prices_by_figi.get(figi)
+            if p is not None:
+                return p
+
+        return None
 
     def get_price_text(self, info: InstrumentInfo) -> str:
         p = self.get_price(info)
