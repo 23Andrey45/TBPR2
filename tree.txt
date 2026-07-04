@@ -1,31 +1,38 @@
+ Том в устройстве D имеет метку WD1
+ Серийный номер тома: 66B5-F725
+
  Содержимое папки D:\TBPR\tbpr1
 
-03.07.2026  14:17    <DIR>          .
-03.07.2026  14:17    <DIR>          ..
-03.07.2026  14:05    <DIR>          .idea
-03.07.2026  14:17                 0 1.txt
-03.07.2026  13:26    <DIR>          app
-30.05.2026  17:21           426 523 candles.csv
+04.07.2026  10:21    <DIR>          .
+04.07.2026  10:21    <DIR>          ..
+03.07.2026  17:27                91 .gitignore
+04.07.2026  10:21    <DIR>          .idea
+04.07.2026  10:22                 0 1.txt
+04.07.2026  09:42    <DIR>          app
 03.07.2026  13:04    <DIR>          core
 02.07.2026  20:09    <DIR>          data
 01.07.2026  20:19               261 main.py
+03.07.2026  20:12               439 README.md
+03.07.2026  20:36             1 008 requirements-lock.txt
+03.07.2026  20:22                44 requirements.txt
+03.07.2026  20:24             1 004 run.cmd
 12.06.2026  23:49    <DIR>          scripts
 01.07.2026  20:58    <DIR>          secrets
-03.07.2026  13:25    <DIR>          tabs
-01.07.2026  20:51               603 tinvest_client.py
-               4 файлов        427 387 байт
+04.07.2026  09:57    <DIR>          tabs
+03.07.2026  14:17            10 277 tree.txt
+               8 файлов         13 124 байт
 
  Содержимое папки D:\TBPR\tbpr1\.idea
 
-03.07.2026  14:05    <DIR>          .
-03.07.2026  14:05    <DIR>          ..
+04.07.2026  10:21    <DIR>          .
+04.07.2026  10:21    <DIR>          ..
 29.05.2026  23:40               184 .gitignore
 29.05.2026  23:41    <DIR>          inspectionProfiles
 29.05.2026  23:41               197 misc.xml
 29.05.2026  23:41               269 modules.xml
 29.05.2026  23:41               291 tbpr1.iml
-03.07.2026  14:05             7 992 workspace.xml
-               5 файлов          8 933 байт
+04.07.2026  10:21             8 158 workspace.xml
+               5 файлов          9 099 байт
 
  Содержимое папки D:\TBPR\tbpr1\.idea\inspectionProfiles
 
@@ -36,20 +43,23 @@
 
  Содержимое папки D:\TBPR\tbpr1\app
 
-03.07.2026  13:26    <DIR>          .
-03.07.2026  13:26    <DIR>          ..
+04.07.2026  09:42    <DIR>          .
+04.07.2026  09:42    <DIR>          ..
 01.07.2026  20:54             1 217 config.py
-03.07.2026  13:26             3 993 main_window.py
-03.07.2026  13:26    <DIR>          __pycache__
-               2 файлов          5 210 байт
+04.07.2026  09:03             4 099 main_window.py
+01.07.2026  20:51               603 tinvest_client.py
+04.07.2026  09:42                23 __init__.py
+04.07.2026  09:42    <DIR>          __pycache__
+               4 файлов          5 942 байт
 
  Содержимое папки D:\TBPR\tbpr1\app\__pycache__
 
-03.07.2026  13:26    <DIR>          .
-03.07.2026  13:26    <DIR>          ..
+04.07.2026  09:42    <DIR>          .
+04.07.2026  09:42    <DIR>          ..
 01.07.2026  20:54             1 804 config.cpython-311.pyc
-03.07.2026  13:26             6 697 main_window.cpython-311.pyc
-               2 файлов          8 501 байт
+04.07.2026  09:03             7 217 main_window.cpython-311.pyc
+04.07.2026  09:42               138 __init__.cpython-311.pyc
+               3 файлов          9 159 байт
 
  Содержимое папки D:\TBPR\tbpr1\core
 
@@ -153,8 +163,8 @@
 30.05.2026  22:02             2 683 favorites_shares.json
 02.07.2026  21:07             8 494 fills_cache.json
 02.07.2026  21:40            10 169 orders_cache.json
-03.07.2026  13:41               894 robots_cache.json
-               5 файлов         23 841 байт
+04.07.2026  10:22             1 793 robots_cache.json
+               5 файлов         24 740 байт
 
  Содержимое папки D:\TBPR\tbpr1\data\candles_cache
 
@@ -185,14 +195,14 @@
 
  Содержимое папки D:\TBPR\tbpr1\tabs
 
-03.07.2026  13:25    <DIR>          .
-03.07.2026  13:25    <DIR>          ..
+04.07.2026  09:57    <DIR>          .
+04.07.2026  09:57    <DIR>          ..
 13.06.2026  16:35             6 670 candles_panel_widget.py
 13.06.2026  16:35             9 559 home_controller.py
 12.06.2026  23:26             4 009 instruments_controller.py
 01.07.2026  22:21             7 365 instruments_widget.py
 01.07.2026  21:14            11 182 instrument_picker_widget.py
-03.07.2026  13:25             5 281 quotes_hub.py
+04.07.2026  09:57             7 660 quotes_hub.py
 13.06.2026  19:31             6 279 strategy_results_widget.py
 02.07.2026  00:38             9 075 tab_account.py
 01.07.2026  21:13             5 028 tab_home.py
@@ -201,18 +211,18 @@
 01.07.2026  21:06               423 tab_settings.py
 03.07.2026  10:46               622 trading_context.py
 13.06.2026  01:02            11 720 workers.py
-03.07.2026  13:26    <DIR>          __pycache__
-              14 файлов        162 114 байт
+04.07.2026  09:57    <DIR>          __pycache__
+              14 файлов        164 493 байт
 
  Содержимое папки D:\TBPR\tbpr1\tabs\__pycache__
 
-03.07.2026  13:26    <DIR>          .
-03.07.2026  13:26    <DIR>          ..
+04.07.2026  09:57    <DIR>          .
+04.07.2026  09:57    <DIR>          ..
 01.07.2026  20:55            11 815 candles_panel_widget.cpython-311.pyc
 01.07.2026  20:55            16 394 home_controller.cpython-311.pyc
 01.07.2026  20:54             7 939 instruments_controller.cpython-311.pyc
 01.07.2026  22:21            20 665 instrument_picker_widget.cpython-311.pyc
-03.07.2026  13:26            11 599 quotes_hub.cpython-311.pyc
+04.07.2026  09:57            14 269 quotes_hub.cpython-311.pyc
 01.07.2026  20:55            12 061 strategy_results_widget.cpython-311.pyc
 02.07.2026  00:38            16 724 tab_account.cpython-311.pyc
 01.07.2026  22:21             8 313 tab_home.cpython-311.pyc
@@ -220,8 +230,8 @@
 03.07.2026  10:46            93 723 tab_sandbox_trading.cpython-311.pyc
 03.07.2026  10:46             1 627 trading_context.cpython-311.pyc
 01.07.2026  20:54            23 972 workers.cpython-311.pyc
-              12 файлов        270 430 байт
+              12 файлов        273 100 байт
 
      Всего файлов:
-             106 файлов      3 257 294 байт
-              50 папок  433 632 264 192 байт свободно
+             113 файлов      2 850 535 байт
+              50 папок  433 047 437 312 байт свободно
