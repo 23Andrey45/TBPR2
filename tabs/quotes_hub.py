@@ -156,13 +156,13 @@ class QuotesHub(QtCore.QObject):
                 payload.append((info.fav_key(), figi))
 
         if not payload:
-            self._dbg("skip refresh: favorites payload is empty")
+            # self._dbg("skip refresh: favorites payload is empty")
             return
 
         self._refresh_seq += 1
         self._in_flight = True
         self._sent_at = perf_counter()
-        self._dbg(f"refresh #{self._refresh_seq} payload={len(payload)}")
+        # self._dbg(f"refresh #{self._refresh_seq} payload={len(payload)}")
         self._request_fetch.emit(self._refresh_seq, payload)
 
     @QtCore.pyqtSlot(object)
@@ -193,7 +193,7 @@ class QuotesHub(QtCore.QObject):
                     self._prices[info.fav_key()] = p
 
             self.quotes_updated.emit(dict(self._prices))
-            self._dbg(f"loaded prices={len(prices)} cached={len(self._prices)} in {dt:.3f}s")
+            # self._dbg(f"loaded prices={len(prices)} cached={len(self._prices)} in {dt:.3f}s")
             return
 
         self._dbg(f"loaded empty prices in {dt:.3f}s")

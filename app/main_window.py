@@ -63,7 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
             trading_context=self.trading_context,
         )
         self.journal_tab = JournalTab(trading_context=self.trading_context)
-        self.events_tab = EventsTab(self.trading_context)
+        self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
         self.tabs.addTab(self.home_tab, "Инструманты")
         self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
@@ -84,10 +84,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _heartbeat(self):
         dt = perf_counter() - self._hb_t0
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        print(
-            f"[ui-heartbeat:{ts}] alive uptime={dt:.1f}s "
-            f"tab={self.tabs.currentIndex() if hasattr(self, 'tabs') else -1}"
-        )
+        # print(
+        #     f"[ui-heartbeat:{ts}] alive uptime={dt:.1f}s "
+        #     f"tab={self.tabs.currentIndex() if hasattr(self, 'tabs') else -1}"
+        #)
 
     def _on_tab_changed(self, index: int):
         if self.account_tab is None:

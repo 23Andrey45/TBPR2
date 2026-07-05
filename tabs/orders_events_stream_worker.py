@@ -36,6 +36,7 @@ class OrdersEventsStreamWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def stop(self) -> None:
         self._stop_requested = True
+        self.status_changed.emit("Запрошена остановка stream...")
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._request_async_stop)
 
@@ -126,10 +127,26 @@ class OrdersEventsStreamWorker(QtCore.QObject):
                 self._active_meta = meta
                 self.subscription_info.emit(meta)
 
-                async for msg in stream:
+                iterator = stream.__aiter__()
+                next_task = asyncio.create_task(anext(iterator))
+                while True:
                     if self._stop_requested:
+                        if not next_task.done():
+                            next_task.cancel()
                         await self._close_active_stream(reason="stop_requested")
                         return True
+
+                    try:
+                        done, _ = await asyncio.wait({next_task}, timeout=0.5)
+                        if not done:
+                            continue
+                        msg = next_task.result()
+                        next_task = asyncio.create_task(anext(iterator))
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.CancelledError:
+                        continue
+
                     self.event_received.emit(self._to_event_dict(method_name, msg))
 
                 await self._close_active_stream(reason="stream_finished")
