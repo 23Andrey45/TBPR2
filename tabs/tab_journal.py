@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +80,7 @@ class JournalTab(QtWidgets.QWidget):
         for rec in items:
             row = self.tbl.rowCount()
             self.tbl.insertRow(row)
-            self.tbl.setItem(row, 0, QtWidgets.QTableWidgetItem(str(rec.get("time", ""))))
+            self.tbl.setItem(row, 0, QtWidgets.QTableWidgetItem(self._format_msk_time(rec.get("time", ""))))
             self.tbl.setItem(row, 1, QtWidgets.QTableWidgetItem(str(rec.get("account_id", ""))))
             self.tbl.setItem(row, 2, QtWidgets.QTableWidgetItem(str(rec.get("ticker", ""))))
             self.tbl.setItem(row, 3, QtWidgets.QTableWidgetItem(str(rec.get("side", ""))))
@@ -166,3 +166,21 @@ class JournalTab(QtWidgets.QWidget):
             return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         except Exception:
             return datetime.min
+
+    def _format_msk_time(self, value: Any) -> str:
+        raw = str(value or "")
+        if not raw:
+            return ""
+        dt = self._parse_iso(raw)
+        if dt is None:
+            return raw
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt_msk = dt.astimezone(timezone.utc) + timedelta(hours=3)
+        return dt_msk.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _parse_iso(self, value: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except Exception:
+            return None

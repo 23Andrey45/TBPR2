@@ -35,7 +35,6 @@ class _FavoritesPositionsLoader(QtCore.QObject):
     def _load_positions(self) -> dict[str, float]:
         out: dict[str, float] = {}
 
-        # Preferred path: project API wrapper.
         try:
             from core.sandbox_trading_api import get_sandbox_portfolio
 
@@ -49,7 +48,6 @@ class _FavoritesPositionsLoader(QtCore.QObject):
         except Exception:
             pass
 
-        # Fallback path via raw SDK method.
         with Client(token=self.token) as client:
             sb = getattr(client, "sandbox", None)
             if sb is None:
@@ -148,8 +146,6 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
             self._on_favorites_updated(self.controller.favorites())
             return
 
-        self.lbl.setText("Избранное (обновляю количество...)")
-
         self._qty_thread = QtCore.QThread(self)
         self._qty_worker = _FavoritesPositionsLoader(TOKEN, self._account_id)
         self._qty_worker.moveToThread(self._qty_thread)
@@ -170,11 +166,9 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_quantities_loaded(self, qty_by_figi: dict[str, float]):
         self._qty_by_figi = qty_by_figi or {}
-        self.lbl.setText("Избранное")
         self._on_favorites_updated(self.controller.favorites())
 
     def _on_quantities_error(self, tb: str):
-        self.lbl.setText("Избранное (ошибка обновления количества, см. консоль)")
         print("===== ERROR (_FavoritesOnlyPicker qty) =====")
         print(tb)
         print("============================================")
@@ -205,10 +199,12 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
             kind_letter = "S" if info.kind == "share" else ("E" if info.kind == "etf" else ("B" if info.kind == "bond" else "?"))
             type_item = QtWidgets.QTableWidgetItem(kind_letter)
-            instrument_item = QtWidgets.QTableWidgetItem(f"{info.name}\n{kind_letter} | {info.ticker} | {info.isin}")
+            instrument_item = QtWidgets.QTableWidgetItem(f"{info.ticker} | {info.name}")
             isin_item = QtWidgets.QTableWidgetItem(info.isin)
-            price_item = QtWidgets.QTableWidgetItem(price)
-            qty_item = QtWidgets.QTableWidgetItem(qty)
+            price_item = QtWidgets.QTableWidgetItem(str(price))
+            qty_item = QtWidgets.QTableWidgetItem(str(qty))
+
+            instrument_item.setData(QtCore.Qt.ItemDataRole.UserRole, info)
 
             self.tbl_fav.setItem(r, 0, type_item)
             self.tbl_fav.setItem(r, 1, instrument_item)
@@ -216,43 +212,29 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
             self.tbl_fav.setItem(r, 3, price_item)
             self.tbl_fav.setItem(r, 4, qty_item)
 
-            item = self.tbl_fav.item(r, 0)
-            if item is not None:
-                item.setData(QtCore.Qt.ItemDataRole.UserRole, info)
-
         self.tbl_fav.setSortingEnabled(True)
-        self.tbl_fav.resizeRowsToContents()
 
-    def get_price_for(self, info: InstrumentInfo) -> str:
-        key = info.fav_key()
-        cached = self._price_by_key.get(key, "")
-        if cached and cached != "-":
-            return cached
-        self.quotes_hub.request_refresh()
-        return ""
-
-    def _on_quotes_updated(self, prices_by_key: dict[str, float]):
-        changed = False
-        for key, value in prices_by_key.items():
-            text = f"{float(value):.6f}".rstrip("0").rstrip(".")
-            if self._price_by_key.get(key) != text:
-                self._price_by_key[key] = text
-                changed = True
-        if changed:
-            self._on_favorites_updated(self.controller.favorites())
+    def _on_quotes_updated(self, prices: dict):
+        self._price_by_key = {}
+        for info in self.controller.favorites():
+            p = prices.get(info.fav_key())
+            if p is not None:
+                self._price_by_key[info.fav_key()] = f"{float(p):.6f}".rstrip("0").rstrip(".")
+        self._on_favorites_updated(self.controller.favorites())
 
     def _emit_selected(self, *_):
         sel = self.tbl_fav.selectionModel().selectedRows()
         if not sel:
             return
         row = sel[0].row()
-        item = self.tbl_fav.item(row, 0)
+        item = self.tbl_fav.item(row, 1)
         if item is None:
             return
         info = item.data(QtCore.Qt.ItemDataRole.UserRole)
-        if info is not None:
-            self._selected = info
-            self.instrument_selected.emit(info)
+        if not info:
+            return
+        self._selected = info
+        self.instrument_selected.emit(info)
 
-    def selected_instrument(self) -> Optional[InstrumentInfo]:
-        return self._selected
+    def get_price_for(self, info: InstrumentInfo) -> str:
+        return self._price_by_key.get(info.fav_key(), "")
