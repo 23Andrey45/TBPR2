@@ -7,6 +7,7 @@ from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE
 from tabs.instruments_controller import InstrumentsController
 from tabs.quotes_hub import QuotesHub
 from tabs.tab_home import HomeTab
+from tabs.tab_events import EventsTab
 from tabs.tab_journal import JournalTab
 from tabs.tab_robots import RobotsTab
 from tabs.tab_sandbox_trading import SandboxTradingTab
@@ -62,11 +63,13 @@ class MainWindow(QtWidgets.QMainWindow):
             trading_context=self.trading_context,
         )
         self.journal_tab = JournalTab(trading_context=self.trading_context)
+        self.events_tab = EventsTab(self.trading_context)
 
         self.tabs.addTab(self.home_tab, "Инструманты")
         self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.journal_tab, "Журнал")
+        self.tabs.addTab(self.events_tab, "События")
 
         if AccountTab is not None:
             self.account_tab = AccountTab()
@@ -100,6 +103,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if hasattr(self, "_hb_qtimer") and self._hb_qtimer is not None:
                 self._hb_qtimer.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "events_tab") and self.events_tab is not None:
+                self.events_tab.stop_stream(wait_ms=4000)
         except Exception:
             pass
         try:
