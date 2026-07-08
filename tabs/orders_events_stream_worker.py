@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 from PyQt6 import QtCore
 from t_tech.invest import AsyncClient
+from t_tech.invest import Client
 from t_tech.invest.constants import INVEST_GRPC_API, INVEST_GRPC_API_SANDBOX
 
 try:
@@ -24,10 +25,11 @@ class OrdersEventsStreamWorker(QtCore.QObject):
     stream_closed = QtCore.pyqtSignal(object)
     finished = QtCore.pyqtSignal()
 
-    def __init__(self, token: str, account_id: str):
+    def __init__(self, token: str, account_id: str, backfill_minutes: int = 180):
         super().__init__()
         self.token = token
         self.account_id = (account_id or "").strip()
+        self.backfill_minutes = max(1, int(backfill_minutes))
         self._stop_requested = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._active_stream: Any | None = None
@@ -127,27 +129,10 @@ class OrdersEventsStreamWorker(QtCore.QObject):
                 self._active_meta = meta
                 self.subscription_info.emit(meta)
 
-                iterator = stream.__aiter__()
-                next_task = asyncio.create_task(anext(iterator))
-                while True:
-                    if self._stop_requested:
-                        if not next_task.done():
-                            next_task.cancel()
-                        await self._close_active_stream(reason="stop_requested")
-                        return True
-
-                    try:
-                        done, _ = await asyncio.wait({next_task}, timeout=0.5)
-                        if not done:
-                            continue
-                        msg = next_task.result()
-                        next_task = asyncio.create_task(anext(iterator))
-                    except StopAsyncIteration:
-                        break
-                    except asyncio.CancelledError:
-                        continue
-
-                    self.event_received.emit(self._to_event_dict(method_name, msg))
+                # Stream first, then one-shot snapshot/backfill while stream is alive.
+                consume_task = asyncio.create_task(self._consume_stream_messages(stream, method_name))
+                await self._emit_snapshot_and_backfill(target)
+                await consume_task
 
                 await self._close_active_stream(reason="stream_finished")
                 return True
@@ -164,6 +149,128 @@ class OrdersEventsStreamWorker(QtCore.QObject):
 
         self.status_changed.emit(f"Метод {method_name} не запущен ({last_error})")
         return False
+
+    async def _consume_stream_messages(self, stream: Any, method_name: str) -> None:
+        iterator = stream.__aiter__()
+        next_task = asyncio.create_task(anext(iterator))
+        while True:
+            if self._stop_requested:
+                if not next_task.done():
+                    next_task.cancel()
+                await self._close_active_stream(reason="stop_requested")
+                return
+
+            done, _ = await asyncio.wait({next_task}, timeout=0.5)
+            if not done:
+                continue
+
+            try:
+                msg = next_task.result()
+                next_task = asyncio.create_task(anext(iterator))
+            except StopAsyncIteration:
+                break
+            except asyncio.CancelledError:
+                break
+
+            self.event_received.emit(self._to_event_dict(method_name, msg))
+
+    async def _emit_snapshot_and_backfill(self, target: str) -> None:
+        if self._stop_requested:
+            return
+
+        self.status_changed.emit("Синхронизация: snapshot активных заявок...")
+        snapshot = await asyncio.to_thread(self._load_active_orders_sync, target)
+        for rec in snapshot:
+            self.event_received.emit(rec)
+
+        if self._stop_requested:
+            return
+
+        self.status_changed.emit("Синхронизация: backfill недавних сделок...")
+        backfill = await asyncio.to_thread(self._load_recent_trades_sync, target)
+        for rec in backfill:
+            self.event_received.emit(rec)
+
+        self.status_changed.emit(
+            f"Синхронизация завершена: snapshot={len(snapshot)}, backfill={len(backfill)}"
+        )
+
+    def _load_active_orders_sync(self, target: str) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        with Client(self.token, target=target) as client:
+            methods = []
+            sb = getattr(client, "sandbox", None)
+            if sb is not None:
+                methods.append(getattr(sb, "get_sandbox_orders", None))
+            orders = getattr(client, "orders", None)
+            if orders is not None:
+                methods.append(getattr(orders, "get_orders", None))
+
+            for method in methods:
+                if method is None:
+                    continue
+                try:
+                    resp = method(account_id=self.account_id)
+                    items = list(getattr(resp, "orders", []) or [])
+                    for item in items:
+                        out.append(
+                            {
+                                "received_at": datetime.now(timezone.utc).isoformat(),
+                                "event_type": "snapshot_order",
+                                "order_id": str(getattr(item, "order_id", "") or ""),
+                                "status": str(
+                                    getattr(item, "execution_report_status", "")
+                                    or getattr(item, "status", "")
+                                    or ""
+                                ),
+                                "payload": self._msg_preview(item),
+                            }
+                        )
+                    return out
+                except Exception:
+                    continue
+        return out
+
+    def _load_recent_trades_sync(self, target: str) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        from_dt = datetime.now(timezone.utc) - timedelta(minutes=self.backfill_minutes)
+        to_dt = datetime.now(timezone.utc)
+
+        with Client(self.token, target=target) as client:
+            methods = []
+            sb = getattr(client, "sandbox", None)
+            if sb is not None:
+                methods.append(getattr(sb, "get_sandbox_operations", None))
+            ops = getattr(client, "operations", None)
+            if ops is not None:
+                methods.append(getattr(ops, "get_operations", None))
+
+            for method in methods:
+                if method is None:
+                    continue
+                try:
+                    resp = method(account_id=self.account_id, from_=from_dt, to=to_dt)
+                    items = list(getattr(resp, "operations", []) or [])
+                    for op in items:
+                        op_type = str(getattr(op, "operation_type", "") or getattr(op, "type", ""))
+                        up = op_type.upper()
+                        if "BUY" not in up and "SELL" not in up:
+                            continue
+                        side = "BUY" if "BUY" in up else "SELL"
+                        out.append(
+                            {
+                                "received_at": datetime.now(timezone.utc).isoformat(),
+                                "event_type": "backfill_trade",
+                                "order_id": str(getattr(op, "parent_operation_id", "") or ""),
+                                "status": side,
+                                "payload": self._msg_preview(op),
+                            }
+                        )
+                    return out
+                except Exception:
+                    continue
+
+        return out
 
     async def _request_iterator(self, method_name: str) -> AsyncIterator[Any]:
         req = self._make_request(method_name)
