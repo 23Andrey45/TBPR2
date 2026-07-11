@@ -60,8 +60,10 @@ class RobotsTab(QtWidgets.QWidget):
 
         self.lbl_status = QtWidgets.QLabel("")
 
-        self.tbl_robots = QtWidgets.QTableWidget(0, 7)
-        self.tbl_robots.setHorizontalHeaderLabels(["ID", "Тип", "Инструмент", "Тек.цена", "Статус", "Создан", "Удалить"])
+        self.tbl_robots = QtWidgets.QTableWidget(0, 8)
+        self.tbl_robots.setHorizontalHeaderLabels(
+            ["ID", "Тип", "Инструмент", "Тек.цена", "Статус", "Создан", "b | s", "Удалить"]
+        )
         self.tbl_robots.horizontalHeader().setStretchLastSection(True)
         self.tbl_robots.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_robots.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -251,10 +253,11 @@ class RobotsTab(QtWidgets.QWidget):
             self.tbl_robots.setItem(r, 3, QtWidgets.QTableWidgetItem(str(rec.get("current_price", ""))))
             self.tbl_robots.setItem(r, 4, QtWidgets.QTableWidgetItem(str(rec.get("status", ""))))
             self.tbl_robots.setItem(r, 5, QtWidgets.QTableWidgetItem(str(rec.get("created_at", ""))))
+            self.tbl_robots.setItem(r, 6, QtWidgets.QTableWidgetItem(self._total_deals_text(rec)))
             rid = str(rec.get("robot_id", ""))
             del_item = QtWidgets.QTableWidgetItem("Удалить")
             del_item.setData(QtCore.Qt.ItemDataRole.UserRole, rid)
-            self.tbl_robots.setItem(r, 6, del_item)
+            self.tbl_robots.setItem(r, 7, del_item)
 
             if target_id and rid == target_id:
                 self.tbl_robots.selectRow(r)
@@ -269,14 +272,25 @@ class RobotsTab(QtWidgets.QWidget):
         self.lbl_status.setText("Робот удален")
 
     def _on_robot_table_clicked(self, row: int, column: int):
-        if column != 6:
+        if column != 7:
             return
-        item = self.tbl_robots.item(row, 6)
+        item = self.tbl_robots.item(row, 7)
         if item is None:
             return
         rid = str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "")
         if rid:
             self._delete_robot(rid)
+
+    def _total_deals_text(self, rec: dict) -> str:
+        deals_by_level = rec.get("deals_by_level", {}) or {}
+        total_b = 0
+        total_s = 0
+        for row in deals_by_level.values():
+            if not isinstance(row, dict):
+                continue
+            total_b += int(row.get("b", 0) or 0)
+            total_s += int(row.get("s", 0) or 0)
+        return f"{total_b} | {total_s}"
 
     def _update_robot_row_price(self, robot_id: str, price: float):
         if not robot_id:
