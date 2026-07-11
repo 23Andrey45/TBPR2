@@ -79,12 +79,14 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self,
         controller: InstrumentsController,
         quotes_hub: QuotesHub,
+        positions_hub: Any = None,
         trading_context: Any = None,
         parent=None,
     ):
         super().__init__(parent)
         self.controller = controller
         self.quotes_hub = quotes_hub
+        self.positions_hub = positions_hub
         self.trading_context = trading_context if trading_context is not None else getattr(parent, "trading_context", None)
 
         self._selected: Optional[InstrumentInfo] = None
@@ -127,6 +129,9 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.btn_refresh_qty.clicked.connect(self.refresh_quantities)
         self.quotes_hub.quotes_updated.connect(self._on_quotes_updated)
 
+        if self.positions_hub is not None and hasattr(self.positions_hub, "positions_updated"):
+            self.positions_hub.positions_updated.connect(self._on_positions_updated)
+
         if self.trading_context is not None and hasattr(self.trading_context, "account_changed"):
             self.trading_context.account_changed.connect(self._on_account_changed)
 
@@ -138,6 +143,13 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.refresh_quantities()
 
     def refresh_quantities(self):
+        if self.positions_hub is not None:
+            try:
+                self.positions_hub.request_refresh()
+            except Exception:
+                pass
+            return
+
         if self._qty_thread is not None and self._qty_thread.isRunning():
             return
 
@@ -166,6 +178,18 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_quantities_loaded(self, qty_by_figi: dict[str, float]):
         self._qty_by_figi = qty_by_figi or {}
+        self._on_favorites_updated(self.controller.favorites())
+
+    def _on_positions_updated(self, _payload: dict):
+        if self.positions_hub is None:
+            return
+        by_figi: dict[str, float] = {}
+        for info in self.controller.favorites():
+            figi = (info.figi or info.instrument_id or "").strip()
+            if not figi:
+                continue
+            by_figi[figi] = float(self.positions_hub.get_qty(info))
+        self._qty_by_figi = by_figi
         self._on_favorites_updated(self.controller.favorites())
 
     def _on_quantities_error(self, tb: str):

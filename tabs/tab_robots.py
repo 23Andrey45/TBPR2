@@ -24,6 +24,7 @@ class RobotsTab(QtWidgets.QWidget):
         instruments_controller: InstrumentsController,
         quotes_hub: QuotesHub,
         trading_context: TradingContext,
+        positions_hub=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -37,11 +38,14 @@ class RobotsTab(QtWidgets.QWidget):
         self._account_id = self.trading_context.account_id
         self._sync_thread: QtCore.QThread | None = None
         self._sync_worker = None
+        self.positions_hub = positions_hub
 
         # Справа тот же переиспользуемый виджет избранного, что и на вкладке Торговля.
         self.favorites_panel = FavoritesOnlyPicker(
             controller=self.instr_controller,
             quotes_hub=self.quotes_hub,
+            positions_hub=self.positions_hub,
+            trading_context=self.trading_context,
             parent=self,
         )
         self.favorites_panel.instrument_selected.connect(self._on_instrument_selected)

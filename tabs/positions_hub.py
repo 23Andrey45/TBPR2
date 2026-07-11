@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from PyQt6 import QtCore
+from t_tech.invest import Client
 
 from core.instruments_catalog import InstrumentInfo
-from core.sandbox_trading_api import get_sandbox_portfolio
 
 
 class _PositionsWorker(QtCore.QObject):
-    loaded = QtCore.pyqtSignal(object)  # dict: {"seq": int, "positions": dict[str, float], "by_figi": dict[str, float]}
+    loaded = QtCore.pyqtSignal(object)  # dict: {"seq": int, "by_figi": dict[str, float]}
     error = QtCore.pyqtSignal(str)
 
     def __init__(self, token: str):
@@ -27,22 +27,56 @@ class _PositionsWorker(QtCore.QObject):
         if self._stopping:
             return
         if not account_id:
-            self.loaded.emit({"seq": seq, "positions": {}, "by_figi": {}})
+            self.loaded.emit({"seq": seq, "by_figi": {}})
             return
 
         try:
-            rows = get_sandbox_portfolio(self.token, account_id)
-            by_figi: dict[str, float] = {}
-            for r in rows:
-                figi = str(getattr(r, "figi", "") or "").strip()
-                qty = float(getattr(r, "quantity", 0.0) or 0.0)
-                if figi:
-                    by_figi[figi] = qty
-
-            self.loaded.emit({"seq": seq, "positions": {}, "by_figi": by_figi})
+            by_figi = self._load_positions(account_id)
+            self.loaded.emit({"seq": seq, "by_figi": by_figi})
         except Exception as exc:
             import traceback
+
             self.error.emit(f"{exc}\n{traceback.format_exc()}")
+
+    def _load_positions(self, account_id: str) -> dict[str, float]:
+        out: dict[str, float] = {}
+
+        # Preferred path: reuse project API wrapper (same behavior as old picker loader).
+        try:
+            from core.sandbox_trading_api import get_sandbox_portfolio
+
+            rows = get_sandbox_portfolio(self.token, account_id)
+            for row in rows:
+                figi = str(getattr(row, "figi", "") or "").strip()
+                qty = float(getattr(row, "quantity", 0.0) or 0.0)
+                if figi:
+                    out[figi] = qty
+            return out
+        except Exception:
+            pass
+
+        with Client(token=self.token) as client:
+            sb = getattr(client, "sandbox", None)
+            if sb is None:
+                return out
+
+            method = getattr(sb, "get_sandbox_portfolio", None)
+            if method is None:
+                return out
+
+            try:
+                resp = method(account_id=account_id)
+            except TypeError:
+                return out
+
+            positions = list(getattr(resp, "positions", []) or [])
+            for pos in positions:
+                figi = str(getattr(pos, "figi", "") or "").strip()
+                qty = float(getattr(pos, "quantity", 0.0) or 0.0)
+                if figi:
+                    out[figi] = qty
+
+        return out
 
 
 class PositionsHub(QtCore.QObject):
