@@ -94,6 +94,7 @@ except Exception:
 class SandboxTradingTab(QtWidgets.QWidget):
     ORDERS_CACHE_FILE = DATA_DIR / "orders_cache.json"
     FILLS_CACHE_FILE = DATA_DIR / "fills_cache.json"
+    DEBUG_ORDERS_LOG = False
 
     def __init__(
         self,
@@ -236,6 +237,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._server_active_by_id: dict[str, ActiveOrder] = {}
         self._orders_cache: list[dict[str, Any]] = self._load_orders_cache()
         self._fills_cache: list[dict[str, Any]] = self._load_fills_cache()
+        self._render_scheduled = False
 
         self.picker.instrument_selected.connect(self._on_instrument_selected)
 
@@ -257,7 +259,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._poll_timer.timeout.connect(self.poll_active_orders)
         self._poll_timer.start()
 
-        self._render_tables()
+        self._request_render()
         QtCore.QTimer.singleShot(0, self.refresh_accounts)
 
     def stop(self):
@@ -334,7 +336,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         price = self.picker.get_price_for(info)
         if price and price != "-":
             self.ed_price.setText(price)
-        self._render_tables()
+        self._request_render()
 
     def refresh_accounts(self):
         self.lbl_status.setText("Загрузка sandbox аккаунтов...")
@@ -356,7 +358,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._account_id = ""
             self.lbl_balance.setText("Доступно RUB: -")
             self.lbl_status.setText("Аккаунтов: 0 (создай в вкладке Sandbox счёт)")
-            self._render_tables()
+            self._request_render()
 
     def _on_account_changed(self):
         self._account_id = str(self.cb_accounts.currentData() or "")
@@ -417,7 +419,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
         self._sync_orders_with_fills()
         self.picker.refresh_quantities()
-        self._render_tables()
+        self._request_render()
 
     def poll_active_orders(self):
         if not self.isVisible():
@@ -441,15 +443,16 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
     def _on_active_orders_loaded(self, orders: list[ActiveOrder]):
         self._active_loading = False
-        for o in orders:
-            print(
-                f"[orders] id={o.order_id} figi={o.figi} status={o.status} "
-                f"lots={o.lots_executed}/{o.lots_requested}"
-            )
+        if self.DEBUG_ORDERS_LOG:
+            for o in orders:
+                print(
+                    f"[orders] id={o.order_id} figi={o.figi} status={o.status} "
+                    f"lots={o.lots_executed}/{o.lots_requested}"
+                )
         self._server_active_by_id = {o.order_id: o for o in orders if o.order_id}
         self._sync_orders_with_server()
         self.picker.refresh_quantities()
-        self._render_tables()
+        self._request_render()
 
     def _append_history(
         self,
@@ -538,7 +541,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             QtCore.QTimer.singleShot(300, self.refresh_balance)
             QtCore.QTimer.singleShot(450, self.picker.refresh_quantities)
         else:
-            self._render_tables()
+            self._request_render()
 
     def _add_local_order(
         self,
@@ -764,7 +767,14 @@ class SandboxTradingTab(QtWidgets.QWidget):
         if changed:
             self._save_orders_cache()
         self._sync_orders_with_fills()
-        self._render_tables()
+        self._request_render()
+
+    def _request_render(self):
+        # Coalesce multiple model updates into a single table repaint on the UI loop.
+        if self._render_scheduled:
+            return
+        self._render_scheduled = True
+        QtCore.QTimer.singleShot(0, self._render_tables)
 
     def _fetch_order_state_status(self, order_id: str) -> str:
         if not order_id or not self._account_id:
@@ -843,6 +853,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return None
 
     def _render_tables(self):
+        self._render_scheduled = False
         if self._is_rendering_tables:
             return
         self._is_rendering_tables = True
@@ -920,7 +931,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
     def _remove_local_order(self, local_id: str):
         self._orders_cache = [x for x in self._orders_cache if str(x.get("local_id", "")) != local_id]
         self._save_orders_cache()
-        self._render_tables()
+        self._request_render()
 
     def _on_active_cell_clicked(self, row: int, column: int):
         if column != 8:
