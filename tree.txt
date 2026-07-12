@@ -1,67 +1,66 @@
  Содержимое папки D:\TBPR\tbpr1
 
-04.07.2026  10:21    <DIR>          .
-04.07.2026  10:21    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 03.07.2026  17:27                91 .gitignore
-04.07.2026  10:21    <DIR>          .idea
-04.07.2026  10:22                 0 1.txt
-04.07.2026  09:42    <DIR>          app
-03.07.2026  13:04    <DIR>          core
-02.07.2026  20:09    <DIR>          data
+12.07.2026  11:50    <DIR>          .idea
+12.07.2026  09:51    <DIR>          app
+11.07.2026  19:09    <DIR>          core
+11.07.2026  19:09    <DIR>          data
 01.07.2026  20:19               261 main.py
 03.07.2026  20:12               439 README.md
 03.07.2026  20:36             1 008 requirements-lock.txt
 03.07.2026  20:22                44 requirements.txt
 03.07.2026  20:24             1 004 run.cmd
-12.06.2026  23:49    <DIR>          scripts
-01.07.2026  20:58    <DIR>          secrets
-04.07.2026  09:57    <DIR>          tabs
-03.07.2026  14:17            10 277 tree.txt
-               8 файлов         13 124 байт
+11.07.2026  19:09    <DIR>          scripts
+11.07.2026  19:09    <DIR>          secrets
+11.07.2026  19:09    <DIR>          tabs
+12.07.2026  11:56                 0 tree.txt
+               7 файлов          2 847 байт
 
  Содержимое папки D:\TBPR\tbpr1\.idea
 
-04.07.2026  10:21    <DIR>          .
-04.07.2026  10:21    <DIR>          ..
+12.07.2026  11:50    <DIR>          .
+12.07.2026  11:50    <DIR>          ..
 29.05.2026  23:40               184 .gitignore
-29.05.2026  23:41    <DIR>          inspectionProfiles
+11.07.2026  19:09    <DIR>          inspectionProfiles
 29.05.2026  23:41               197 misc.xml
 29.05.2026  23:41               269 modules.xml
 29.05.2026  23:41               291 tbpr1.iml
-04.07.2026  10:21             8 158 workspace.xml
-               5 файлов          9 099 байт
+12.07.2026  11:50             8 622 workspace.xml
+               5 файлов          9 563 байт
 
  Содержимое папки D:\TBPR\tbpr1\.idea\inspectionProfiles
 
-29.05.2026  23:41    <DIR>          .
-29.05.2026  23:41    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 29.05.2026  23:41               174 profiles_settings.xml
                1 файлов            174 байт
 
  Содержимое папки D:\TBPR\tbpr1\app
 
-04.07.2026  09:42    <DIR>          .
-04.07.2026  09:42    <DIR>          ..
+12.07.2026  09:51    <DIR>          .
+12.07.2026  09:51    <DIR>          ..
 01.07.2026  20:54             1 217 config.py
-04.07.2026  09:03             4 099 main_window.py
+12.07.2026  09:51             5 379 main_window.py
 01.07.2026  20:51               603 tinvest_client.py
 04.07.2026  09:42                23 __init__.py
-04.07.2026  09:42    <DIR>          __pycache__
-               4 файлов          5 942 байт
+12.07.2026  09:51    <DIR>          __pycache__
+               4 файлов          7 222 байт
 
  Содержимое папки D:\TBPR\tbpr1\app\__pycache__
 
-04.07.2026  09:42    <DIR>          .
-04.07.2026  09:42    <DIR>          ..
+12.07.2026  09:51    <DIR>          .
+12.07.2026  09:51    <DIR>          ..
 01.07.2026  20:54             1 804 config.cpython-311.pyc
-04.07.2026  09:03             7 217 main_window.cpython-311.pyc
+12.07.2026  09:51             8 887 main_window.cpython-311.pyc
 04.07.2026  09:42               138 __init__.cpython-311.pyc
-               3 файлов          9 159 байт
+               3 файлов         10 829 байт
 
  Содержимое папки D:\TBPR\tbpr1\core
 
-03.07.2026  13:04    <DIR>          .
-03.07.2026  13:04    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 30.05.2026  23:57             4 155 account_api.py
 01.07.2026  21:36             1 296 backtest_runner.py
 12.06.2026  11:25             1 759 candle_cache.py
@@ -70,31 +69,31 @@
 01.07.2026  21:36             1 756 dividends_calc.py
 04.06.2026  21:30               926 favorites_repo.py
 03.07.2026  13:04             7 058 instruments_catalog.py
-03.07.2026  12:42    <DIR>          robots
+11.07.2026  19:09    <DIR>          robots
 01.07.2026  21:36             7 691 sandbox_api.py
 03.07.2026  10:44             8 701 sandbox_orders_api.py
 02.07.2026  20:28            10 503 sandbox_trading_api.py
-01.07.2026  21:30    <DIR>          strategies
+11.07.2026  19:09    <DIR>          strategies
 13.06.2026  17:03             6 327 trading_logic.py
 30.05.2026  16:20                 0 __init__.py
-03.07.2026  13:05    <DIR>          __pycache__
+11.07.2026  19:09    <DIR>          __pycache__
               13 файлов         54 289 байт
 
  Содержимое папки D:\TBPR\tbpr1\core\robots
 
-03.07.2026  12:42    <DIR>          .
-03.07.2026  12:42    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 02.07.2026  20:06               491 base.py
 03.07.2026  12:42             3 869 grid_simple.py
 02.07.2026  20:07               810 repository.py
 02.07.2026  20:06               255 __init__.py
-03.07.2026  12:43    <DIR>          __pycache__
+11.07.2026  19:09    <DIR>          __pycache__
                4 файлов          5 425 байт
 
  Содержимое папки D:\TBPR\tbpr1\core\robots\__pycache__
 
-03.07.2026  12:43    <DIR>          .
-03.07.2026  12:43    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 02.07.2026  20:08             1 115 base.cpython-311.pyc
 03.07.2026  12:43             6 227 grid_simple.cpython-311.pyc
 02.07.2026  20:08             1 953 repository.cpython-311.pyc
@@ -103,8 +102,8 @@
 
  Содержимое папки D:\TBPR\tbpr1\core\strategies
 
-01.07.2026  21:30    <DIR>          .
-01.07.2026  21:30    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 01.07.2026  21:30             3 427 base.py
 13.06.2026  17:06             2 930 buy_hold_div.py
 13.06.2026  19:04            10 962 grid_atr_adaptive.py
@@ -114,13 +113,13 @@
 13.06.2026  19:33             9 494 grid_drift_up.py
 13.06.2026  00:59             3 512 sma_cross.py
 13.06.2026  20:34             1 184 __init__.py
-01.07.2026  22:21    <DIR>          __pycache__
+11.07.2026  19:09    <DIR>          __pycache__
                9 файлов         49 572 байт
 
  Содержимое папки D:\TBPR\tbpr1\core\strategies\__pycache__
 
-01.07.2026  22:21    <DIR>          .
-01.07.2026  22:21    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 01.07.2026  22:21             6 682 base.cpython-311.pyc
 13.06.2026  17:06             4 140 buy_hold_div.cpython-311.pyc
 13.06.2026  19:06            14 807 grid_atr_adaptive.cpython-311.pyc
@@ -134,8 +133,8 @@
 
  Содержимое папки D:\TBPR\tbpr1\core\__pycache__
 
-03.07.2026  13:05    <DIR>          .
-03.07.2026  13:05    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 01.07.2026  20:54             7 217 account_api.cpython-311.pyc
 01.07.2026  22:21             2 401 backtest_runner.cpython-311.pyc
 01.07.2026  20:55             2 970 candle_cache.cpython-311.pyc
@@ -144,29 +143,31 @@
 01.07.2026  22:21             2 859 dividends_calc.cpython-311.pyc
 01.07.2026  20:54             2 078 favorites_repo.cpython-311.pyc
 03.07.2026  13:05             9 753 instruments_catalog.cpython-311.pyc
+04.07.2026  11:09             8 031 robot_orders.cpython-311.pyc
 01.07.2026  22:21            11 793 sandbox_api.cpython-311.pyc
 03.07.2026  10:46            13 541 sandbox_orders_api.cpython-311.pyc
 02.07.2026  20:29            15 159 sandbox_trading_api.cpython-311.pyc
 01.07.2026  20:54             9 123 trading_logic.cpython-311.pyc
 01.07.2026  20:54               139 __init__.cpython-311.pyc
-              13 файлов         84 254 байт
+              14 файлов         92 285 байт
 
  Содержимое папки D:\TBPR\tbpr1\data
 
-02.07.2026  20:09    <DIR>          .
-02.07.2026  20:09    <DIR>          ..
-13.06.2026  14:53    <DIR>          candles_cache
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
+11.07.2026  19:09    <DIR>          candles_cache
 02.07.2026  00:17             1 601 favorites_instruments.json
 30.05.2026  22:02             2 683 favorites_shares.json
-02.07.2026  21:07             8 494 fills_cache.json
-02.07.2026  21:40            10 169 orders_cache.json
-04.07.2026  10:22             1 793 robots_cache.json
-               5 файлов         24 740 байт
+08.07.2026  14:34               960 fills_cache.json
+12.07.2026  11:51            15 233 orders_cache.json
+12.07.2026  11:46            12 186 robots_cache.json
+08.07.2026  21:05            30 411 stream_subscriptions_log.jsonl
+               6 файлов         63 074 байт
 
  Содержимое папки D:\TBPR\tbpr1\data\candles_cache
 
-13.06.2026  14:53    <DIR>          .
-13.06.2026  14:53    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 13.06.2026  14:13           415 073 LQDT_etf_RU000A1014L8_CANDLE_INTERVAL_HOUR_365d.csv
 13.06.2026  14:53           401 892 MTSS_share_RU0007775219_CANDLE_INTERVAL_HOUR_365d.csv
 12.06.2026  11:25           426 259 SBER_share_RU0009029540_CANDLE_INTERVAL_HOUR_365d.csv
@@ -177,58 +178,74 @@
 
  Содержимое папки D:\TBPR\tbpr1\scripts
 
-12.06.2026  23:49    <DIR>          .
-12.06.2026  23:49    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 12.06.2026  23:49             1 108 debug_sandbox.py
 31.05.2026  00:15             1 215 debug_sandbox_payin_and_balance.py
                2 файлов          2 323 байт
 
  Содержимое папки D:\TBPR\tbpr1\secrets
 
-01.07.2026  20:58    <DIR>          .
-01.07.2026  20:58    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 01.07.2026  20:56                90 tinvest_token.txt
                1 файлов             90 байт
 
  Содержимое папки D:\TBPR\tbpr1\tabs
 
-04.07.2026  09:57    <DIR>          .
-04.07.2026  09:57    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 13.06.2026  16:35             6 670 candles_panel_widget.py
 13.06.2026  16:35             9 559 home_controller.py
 12.06.2026  23:26             4 009 instruments_controller.py
 01.07.2026  22:21             7 365 instruments_widget.py
 01.07.2026  21:14            11 182 instrument_picker_widget.py
-04.07.2026  09:57             7 660 quotes_hub.py
+08.07.2026  13:22            14 729 orders_events_stream_worker.py
+11.07.2026  18:36             6 294 positions_hub.py
+05.07.2026  20:14             7 016 quotes_events_stream_worker.py
+06.07.2026  00:28             7 666 quotes_hub.py
+08.07.2026  21:04             7 966 robots_logic.py
+11.07.2026  18:32            10 287 sandbox_favorites_picker.py
+04.07.2026  12:31             7 691 sandbox_trading_service_workers.py
 13.06.2026  19:31             6 279 strategy_results_widget.py
 02.07.2026  00:38             9 075 tab_account.py
+05.07.2026  20:23            12 591 tab_events.py
 01.07.2026  21:13             5 028 tab_home.py
-03.07.2026  13:05            27 127 tab_robots.py
-03.07.2026  10:45            57 774 tab_sandbox_trading.py
+04.07.2026  23:14             7 491 tab_journal.py
+11.07.2026  18:32            20 019 tab_robots.py
+04.07.2026  14:45            37 245 tab_sandbox_trading.py
 01.07.2026  21:06               423 tab_settings.py
 03.07.2026  10:46               622 trading_context.py
 13.06.2026  01:02            11 720 workers.py
-04.07.2026  09:57    <DIR>          __pycache__
-              14 файлов        164 493 байт
+11.07.2026  19:09    <DIR>          __pycache__
+              22 файлов        210 927 байт
 
  Содержимое папки D:\TBPR\tbpr1\tabs\__pycache__
 
-04.07.2026  09:57    <DIR>          .
-04.07.2026  09:57    <DIR>          ..
+11.07.2026  19:09    <DIR>          .
+11.07.2026  19:09    <DIR>          ..
 01.07.2026  20:55            11 815 candles_panel_widget.cpython-311.pyc
 01.07.2026  20:55            16 394 home_controller.cpython-311.pyc
 01.07.2026  20:54             7 939 instruments_controller.cpython-311.pyc
 01.07.2026  22:21            20 665 instrument_picker_widget.cpython-311.pyc
-04.07.2026  09:57            14 269 quotes_hub.cpython-311.pyc
+08.07.2026  13:22            21 453 orders_events_stream_worker.cpython-311.pyc
+11.07.2026  18:36            12 487 positions_hub.cpython-311.pyc
+05.07.2026  20:15            11 417 quotes_events_stream_worker.cpython-311.pyc
+06.07.2026  00:28            13 774 quotes_hub.cpython-311.pyc
+08.07.2026  21:04            14 006 robots_logic.cpython-311.pyc
+11.07.2026  18:33            18 794 sandbox_favorites_picker.cpython-311.pyc
+04.07.2026  12:31            13 431 sandbox_trading_service_workers.cpython-311.pyc
 01.07.2026  20:55            12 061 strategy_results_widget.cpython-311.pyc
 02.07.2026  00:38            16 724 tab_account.cpython-311.pyc
+05.07.2026  20:23            22 797 tab_events.cpython-311.pyc
 01.07.2026  22:21             8 313 tab_home.cpython-311.pyc
-03.07.2026  13:05            45 598 tab_robots.cpython-311.pyc
-03.07.2026  10:46            93 723 tab_sandbox_trading.cpython-311.pyc
+04.07.2026  23:14            14 789 tab_journal.cpython-311.pyc
+11.07.2026  18:33            33 239 tab_robots.cpython-311.pyc
+04.07.2026  14:45            60 726 tab_sandbox_trading.cpython-311.pyc
 03.07.2026  10:46             1 627 trading_context.cpython-311.pyc
 01.07.2026  20:54            23 972 workers.cpython-311.pyc
-              12 файлов        273 100 байт
+              20 файлов        356 423 байт
 
      Всего файлов:
-             113 файлов      2 850 535 байт
-              50 папок  433 047 437 312 байт свободно
+             130 файлов      3 019 794 байт
+              50 папок  432 966 737 920 байт свободно

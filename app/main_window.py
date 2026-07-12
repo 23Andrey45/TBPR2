@@ -23,7 +23,7 @@ except Exception:
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Moe prilozhenie")
+        self.setWindowTitle("Moe приложение")
         self.resize(1400, 800)
 
         self.home_tab = None
@@ -74,7 +74,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.journal_tab = JournalTab(trading_context=self.trading_context)
         self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
-        self.tabs.addTab(self.home_tab, "Инструманты")
+        self.tabs.addTab(self.home_tab, "Инструменты")
         self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.journal_tab, "Журнал")
