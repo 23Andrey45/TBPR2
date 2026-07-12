@@ -8,7 +8,6 @@ import uuid
 from typing import Optional, Any
 
 from PyQt6 import QtCore, QtWidgets
-from t_tech.invest import Client
 
 from app.config import TOKEN, DATA_DIR
 from core.instruments_catalog import InstrumentInfo
@@ -21,8 +20,6 @@ from tabs.sandbox_trading_service_workers import (
     CancelSandboxOrderWorker,
     OrderStatesLoader,
     RecentDealsLoader,
-    make_request_for_method,
-    set_req_attr,
 )
 
 from core.sandbox_orders_api import PlaceOrderAttempt, ActiveOrder
@@ -95,6 +92,8 @@ class SandboxTradingTab(QtWidgets.QWidget):
     ORDERS_CACHE_FILE = DATA_DIR / "orders_cache.json"
     FILLS_CACHE_FILE = DATA_DIR / "fills_cache.json"
     DEBUG_ORDERS_LOG = False
+    MAX_ACTIVE_ROWS_RENDER = 500
+    MAX_HISTORY_ROWS_RENDER = 500
 
     def __init__(
         self,
@@ -237,7 +236,11 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._server_active_by_id: dict[str, ActiveOrder] = {}
         self._orders_cache: list[dict[str, Any]] = self._load_orders_cache()
         self._fills_cache: list[dict[str, Any]] = self._load_fills_cache()
+        self._fills_cache = self._keep_last_3_days(self._fills_cache)
         self._render_scheduled = False
+        self._status_lock = QtCore.QMutex()
+        self._status_cycle_running = False
+        self._status_cycle_pending = False
 
         self.picker.instrument_selected.connect(self._on_instrument_selected)
 
@@ -246,8 +249,8 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
         self.btn_buy_limit.clicked.connect(lambda: self._place_limit("BUY"))
         self.btn_sell_limit.clicked.connect(lambda: self._place_limit("SELL"))
-        self.cb_only_selected.toggled.connect(lambda *_: self._render_tables())
-        self.btn_refresh_status.clicked.connect(self.refresh_statuses)
+        self.cb_only_selected.toggled.connect(lambda *_: self._request_render())
+        self.btn_refresh_status.clicked.connect(self.request_status_refresh)
         self.tbl_active.cellClicked.connect(self._on_active_cell_clicked)
 
         self.instr_controller.shares_updated.connect(self._reindex_figi)
@@ -256,7 +259,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(5000)
-        self._poll_timer.timeout.connect(self.poll_active_orders)
+        self._poll_timer.timeout.connect(self.request_status_refresh)
         self._poll_timer.start()
 
         self._request_render()
@@ -272,6 +275,11 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
     def hideEvent(self, event):
         self._poll_timer.stop()
+        if self._status_lock.tryLock(0):
+            try:
+                self._status_cycle_pending = False
+            finally:
+                self._status_lock.unlock()
         super().hideEvent(event)
 
     def _reindex_figi(self, *_):
@@ -314,12 +322,14 @@ class SandboxTradingTab(QtWidgets.QWidget):
             wait_sec = self._extract_ratelimit_reset(tb)
             self._orders_poll_blocked_until = datetime.now(timezone.utc) + timedelta(seconds=wait_sec)
             self.lbl_status.setText(f"Лимит API по заявкам исчерпан, ждем {wait_sec} сек")
+            self._try_finish_status_cycle()
             return
 
         self.lbl_status.setText("Ошибка (см. консоль)")
         print("===== ERROR (SandboxTradingTab) =====")
         print(tb)
         print("=====================================")
+        self._try_finish_status_cycle()
 
     def _extract_ratelimit_reset(self, tb: str) -> int:
         m = re.search(r"ratelimit_reset=(\d+)", tb)
@@ -353,7 +363,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self.trading_context.set_account_id(self._account_id)
             self.lbl_status.setText(f"Аккаунтов: {len(accounts)}")
             self.refresh_balance()
-            self.refresh_statuses()
+            self.request_status_refresh()
         else:
             self._account_id = ""
             self.lbl_balance.setText("Доступно RUB: -")
@@ -364,7 +374,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._account_id = str(self.cb_accounts.currentData() or "")
         self.trading_context.set_account_id(self._account_id)
         self.refresh_balance()
-        self.refresh_statuses()
+        self.request_status_refresh()
 
     def refresh_balance(self):
         if not self._account_id:
@@ -386,11 +396,53 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
         self.lbl_balance.setText(f"Доступно RUB: {rub_available:,.2f}".replace(",", " "))
 
+    def request_status_refresh(self):
+        should_start = False
+        if not self._status_lock.tryLock(0):
+            # Never block UI thread on lock contention.
+            QtCore.QTimer.singleShot(10, self.request_status_refresh)
+            return
+        try:
+            if self._status_cycle_running:
+                self._status_cycle_pending = True
+            else:
+                self._status_cycle_running = True
+                self._status_cycle_pending = False
+                should_start = True
+        finally:
+            self._status_lock.unlock()
+
+        if should_start:
+            self.refresh_statuses()
+
     def refresh_statuses(self):
         self.poll_active_orders()
         if self._deals_enabled:
             self._refresh_recent_deals()
         self.picker.refresh_quantities()
+        self._try_finish_status_cycle()
+
+    def _try_finish_status_cycle(self):
+        if self._active_loading or self._deals_loading or self._order_state_loading:
+            return
+
+        should_restart = False
+        if not self._status_lock.tryLock(0):
+            QtCore.QTimer.singleShot(10, self._try_finish_status_cycle)
+            return
+        try:
+            if not self._status_cycle_running:
+                return
+            if self._status_cycle_pending:
+                self._status_cycle_pending = False
+                should_restart = True
+            else:
+                self._status_cycle_running = False
+        finally:
+            self._status_lock.unlock()
+
+        if should_restart:
+            QtCore.QTimer.singleShot(0, self.refresh_statuses)
 
     def _refresh_recent_deals(self):
         if not self._account_id or self._deals_loading:
@@ -420,6 +472,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._sync_orders_with_fills()
         self.picker.refresh_quantities()
         self._request_render()
+        self._try_finish_status_cycle()
 
     def poll_active_orders(self):
         if not self.isVisible():
@@ -453,6 +506,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._sync_orders_with_server()
         self.picker.refresh_quantities()
         self._request_render()
+        self._try_finish_status_cycle()
 
     def _append_history(
         self,
@@ -537,7 +591,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         )
 
         if res.sent:
-            QtCore.QTimer.singleShot(250, self.refresh_statuses)
+            QtCore.QTimer.singleShot(250, self.request_status_refresh)
             QtCore.QTimer.singleShot(300, self.refresh_balance)
             QtCore.QTimer.singleShot(450, self.picker.refresh_quantities)
         else:
@@ -643,6 +697,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
     def _sync_orders_with_server(self):
         changed = False
         order_ids_to_check: list[str] = []
+        fills_to_append: list[dict[str, Any]] = []
         for rec in self._orders_cache:
             if rec.get("account_id") != self._account_id:
                 continue
@@ -679,8 +734,13 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 changed = True
 
             if new_status_ui == "Исполнена":
-                self._append_fill_from_order(rec, source="server-status")
-                changed = True
+                fill = self._build_fill_from_order(rec, source="server-status")
+                if fill is not None:
+                    fills_to_append.append(fill)
+                    changed = True
+
+        if fills_to_append:
+            self._append_fills(fills_to_append)
 
         if changed:
             self._save_orders_cache()
@@ -688,12 +748,12 @@ class SandboxTradingTab(QtWidgets.QWidget):
         if order_ids_to_check:
             self._request_order_states(order_ids_to_check)
 
-    def _append_fill_from_order(self, rec: dict[str, Any], source: str):
+    def _build_fill_from_order(self, rec: dict[str, Any], source: str) -> Optional[dict[str, Any]]:
         order_id = str(rec.get("order_id", "") or "")
         if not order_id:
-            return
+            return None
 
-        fill = {
+        return {
             "deal_id": f"order:{order_id}",
             "account_id": rec.get("account_id", ""),
             "time": datetime.now(timezone.utc).isoformat(),
@@ -707,7 +767,11 @@ class SandboxTradingTab(QtWidgets.QWidget):
             "order_id": order_id,
             "source": source,
         }
-        self._fills_cache = self._merge_fills(self._fills_cache, [fill])
+
+    def _append_fills(self, fills: list[dict[str, Any]]):
+        if not fills:
+            return
+        self._fills_cache = self._merge_fills(self._fills_cache, fills)
         self._fills_cache = self._keep_last_3_days(self._fills_cache)
         self._save_fills_cache()
 
@@ -735,6 +799,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return
 
         changed = False
+        fills_to_append: list[dict[str, Any]] = []
         for rec in self._orders_cache:
             if rec.get("account_id") != self._account_id:
                 continue
@@ -757,17 +822,23 @@ class SandboxTradingTab(QtWidgets.QWidget):
                     rec["status_ui"] = new_status_ui
                     changed = True
                 if new_status_ui == "Исполнена":
-                    self._append_fill_from_order(rec, source="order-state")
-                    changed = True
+                    fill = self._build_fill_from_order(rec, source="order-state")
+                    if fill is not None:
+                        fills_to_append.append(fill)
+                        changed = True
             else:
                 if rec.get("status_ui") != "Не активна":
                     rec["status_ui"] = "Не активна"
                     changed = True
 
+        if fills_to_append:
+            self._append_fills(fills_to_append)
+
         if changed:
             self._save_orders_cache()
         self._sync_orders_with_fills()
         self._request_render()
+        self._try_finish_status_cycle()
 
     def _request_render(self):
         # Coalesce multiple model updates into a single table repaint on the UI loop.
@@ -775,36 +846,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return
         self._render_scheduled = True
         QtCore.QTimer.singleShot(0, self._render_tables)
-
-    def _fetch_order_state_status(self, order_id: str) -> str:
-        if not order_id or not self._account_id:
-            return ""
-
-        try:
-            with Client(token=TOKEN) as client:
-                sb = getattr(client, "sandbox", None)
-                if sb is None:
-                    return ""
-
-                method = getattr(sb, "get_sandbox_order_state", None)
-                if method is None:
-                    method = getattr(sb, "get_sandbox_order", None)
-                if method is None:
-                    return ""
-
-                try:
-                    resp = method(account_id=self._account_id, order_id=order_id)
-                except TypeError:
-                    req = make_request_for_method(method)
-                    set_req_attr(req, ["account_id", "accountId", "id"], self._account_id)
-                    set_req_attr(req, ["order_id", "orderId"], order_id)
-                    resp = method(request=req)
-
-                return str(getattr(resp, "execution_report_status", "") or getattr(resp, "status", "") or "")
-        except Exception as exc:
-            if "UNAUTHENTICATED" in str(exc).upper():
-                self._order_state_enabled = False
-            return ""
 
     def _sync_orders_with_fills(self):
         fills_by_order_id = {str(x.get("order_id", "") or ""): x for x in self._fills_cache if x.get("order_id")}
@@ -875,10 +916,14 @@ class SandboxTradingTab(QtWidgets.QWidget):
                     continue
                 active_rows.append(rec)
 
-            self.tbl_active.setRowCount(0)
-            for rec in active_rows:
-                r = self.tbl_active.rowCount()
-                self.tbl_active.insertRow(r)
+            if len(active_rows) > self.MAX_ACTIVE_ROWS_RENDER:
+                active_rows = active_rows[: self.MAX_ACTIVE_ROWS_RENDER]
+
+            self.tbl_active.setUpdatesEnabled(False)
+            self.tbl_history.setUpdatesEnabled(False)
+
+            self.tbl_active.setRowCount(len(active_rows))
+            for r, rec in enumerate(active_rows):
 
                 self.tbl_active.setItem(r, 0, QtWidgets.QTableWidgetItem(str(rec.get("order_id", ""))))
                 self.tbl_active.setItem(r, 1, QtWidgets.QTableWidgetItem(str(rec.get("ticker", ""))))
@@ -893,16 +938,18 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 del_item.setData(QtCore.Qt.ItemDataRole.UserRole, str(rec.get("local_id", "")))
                 self.tbl_active.setItem(r, 8, del_item)
 
-            fills = self._keep_last_3_days(self._fills_cache)
-            self.tbl_history.setRowCount(0)
-            for rec in fills:
+            visible_fills = []
+            for rec in self._fills_cache:
                 if rec.get("account_id") != self._account_id:
                     continue
                 if selected_figi and rec.get("figi") != selected_figi:
                     continue
+                visible_fills.append(rec)
+                if len(visible_fills) >= self.MAX_HISTORY_ROWS_RENDER:
+                    break
 
-                r = self.tbl_history.rowCount()
-                self.tbl_history.insertRow(r)
+            self.tbl_history.setRowCount(len(visible_fills))
+            for r, rec in enumerate(visible_fills):
                 self.tbl_history.setItem(r, 0, QtWidgets.QTableWidgetItem(str(rec.get("time", ""))))
                 self.tbl_history.setItem(r, 1, QtWidgets.QTableWidgetItem(str(rec.get("ticker", ""))))
                 self.tbl_history.setItem(r, 2, QtWidgets.QTableWidgetItem(str(rec.get("side", ""))))
@@ -913,6 +960,8 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 self.tbl_history.setItem(r, 7, QtWidgets.QTableWidgetItem(str(rec.get("order_id", ""))))
                 self.tbl_history.setItem(r, 8, QtWidgets.QTableWidgetItem(str(rec.get("source", "cache"))))
         finally:
+            self.tbl_active.setUpdatesEnabled(True)
+            self.tbl_history.setUpdatesEnabled(True)
             self._is_rendering_tables = False
 
     def _delete_order(self, local_id: str):
