@@ -293,10 +293,11 @@ class SandboxTradingTab(QtWidgets.QWidget):
         worker.moveToThread(thread)
 
         if hasattr(worker, "loaded") and on_loaded is not None:
-            worker.loaded.connect(on_loaded)
+            # Ensure callbacks are executed in the GUI thread even if the worker emits from another thread.
+            worker.loaded.connect(on_loaded, QtCore.Qt.ConnectionType.QueuedConnection)
 
         if hasattr(worker, "error"):
-            worker.error.connect(self._on_worker_error)
+            worker.error.connect(self._on_worker_error, QtCore.Qt.ConnectionType.QueuedConnection)
 
         if hasattr(worker, "finished"):
             worker.finished.connect(thread.quit)

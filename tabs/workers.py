@@ -5,6 +5,8 @@
 import asyncio
 import traceback
 from datetime import datetime
+import threading
+from queue import Queue, Empty
 
 from PyQt6 import QtCore
 from t_tech.invest import CandleInterval
@@ -26,6 +28,7 @@ from core.sandbox_orders_api import (
 from core.instruments_catalog import fetch_available_shares
 
 from core.sandbox_trading_api import try_post_sandbox_market_order, get_sandbox_portfolio
+
 
 class CandleLoader(QtCore.QObject):
     candle_received = QtCore.pyqtSignal(object)  # CandleData
@@ -80,6 +83,7 @@ class CandleLoader(QtCore.QObject):
 
         print(f"[candles] finished loading. total={n}")
 
+
 class SharesLoader(QtCore.QObject):
     loaded = QtCore.pyqtSignal(object)  # list[ShareInfo]
     error = QtCore.pyqtSignal(str)
@@ -98,6 +102,7 @@ class SharesLoader(QtCore.QObject):
             self.error.emit(traceback.format_exc())
         finally:
             self.finished.emit()
+
 
 class AccountsLoader(QtCore.QObject):
     loaded = QtCore.pyqtSignal(object)  # list[AccountInfo]
@@ -137,6 +142,7 @@ class MoneyBalanceLoader(QtCore.QObject):
             self.error.emit(traceback.format_exc())
         finally:
             self.finished.emit()
+
 
 import traceback
 from PyQt6 import QtCore
@@ -229,10 +235,12 @@ class SandboxMoneyBalanceLoader(QtCore.QObject):
         finally:
             self.finished.emit()
 
+
 # --- sandbox trading workers ---
 
 import traceback
 from PyQt6 import QtCore
+
 
 class SandboxPostMarketOrderLoader(QtCore.QObject):
     loaded = QtCore.pyqtSignal(object)  # OrderResult
@@ -288,10 +296,12 @@ class SandboxPortfolioLoader(QtCore.QObject):
         finally:
             self.finished.emit()
 
+
 class SandboxPostLimitOrderLoader(QtCore.QObject):
     loaded = QtCore.pyqtSignal(object)  # PlaceOrderAttempt
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
+    REQUEST_TIMEOUT_SEC = 12.0
 
     def __init__(self, token: str, account_id: str, figi: str, direction: str, lots: int, price_str: str):
         super().__init__()
@@ -305,14 +315,40 @@ class SandboxPostLimitOrderLoader(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self):
         try:
-            res = try_post_sandbox_limit_order(
-                self.token,
-                self.account_id,
-                figi=self.figi,
-                direction=self.direction,
-                lots=self.lots,
-                price_str=self.price_str,
-            )
+            result_queue: Queue = Queue(maxsize=1)
+
+            def _task():
+                try:
+                    res = try_post_sandbox_limit_order(
+                        self.token,
+                        self.account_id,
+                        figi=self.figi,
+                        direction=self.direction,
+                        lots=self.lots,
+                        price_str=self.price_str,
+                    )
+                    result_queue.put((res, None))
+                except Exception:
+                    result_queue.put((None, traceback.format_exc()))
+
+            t = threading.Thread(target=_task, daemon=True)
+            t.start()
+            t.join(timeout=self.REQUEST_TIMEOUT_SEC)
+
+            if t.is_alive():
+                self.error.emit(f"SandboxPostLimitOrderLoader timeout after {self.REQUEST_TIMEOUT_SEC:.1f}s")
+                return
+
+            try:
+                res, err = result_queue.get_nowait()
+            except Empty:
+                self.error.emit("SandboxPostLimitOrderLoader empty result")
+                return
+
+            if err:
+                self.error.emit(err)
+                return
+
             self.loaded.emit(res)
         except Exception:
             self.error.emit(traceback.format_exc())
@@ -324,6 +360,7 @@ class SandboxActiveOrdersLoader(QtCore.QObject):
     loaded = QtCore.pyqtSignal(object)  # list[ActiveOrder]
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
+    REQUEST_TIMEOUT_SEC = 8.0
 
     def __init__(self, token: str, account_id: str):
         super().__init__()
@@ -333,12 +370,39 @@ class SandboxActiveOrdersLoader(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self):
         try:
-            res = list_active_sandbox_orders(self.token, self.account_id)
+            result_queue: Queue = Queue(maxsize=1)
+
+            def _task():
+                try:
+                    res = list_active_sandbox_orders(self.token, self.account_id)
+                    result_queue.put((res, None))
+                except Exception:
+                    result_queue.put((None, traceback.format_exc()))
+
+            t = threading.Thread(target=_task, daemon=True)
+            t.start()
+            t.join(timeout=self.REQUEST_TIMEOUT_SEC)
+
+            if t.is_alive():
+                self.error.emit(f"SandboxActiveOrdersLoader timeout after {self.REQUEST_TIMEOUT_SEC:.1f}s")
+                return
+
+            try:
+                res, err = result_queue.get_nowait()
+            except Empty:
+                self.error.emit("SandboxActiveOrdersLoader empty result")
+                return
+
+            if err:
+                self.error.emit(err)
+                return
+
             self.loaded.emit(res)
         except Exception:
             self.error.emit(traceback.format_exc())
         finally:
             self.finished.emit()
+
 
 from core.instruments_catalog import fetch_available_shares, fetch_available_bonds, fetch_available_etfs
 
@@ -363,6 +427,7 @@ class InstrumentsCatalogLoader(QtCore.QObject):
             self.error.emit(traceback.format_exc())
         finally:
             self.finished.emit()
+
 
 import traceback
 from PyQt6 import QtCore
