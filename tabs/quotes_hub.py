@@ -117,7 +117,8 @@ class QuotesHub(QtCore.QObject):
         self._worker.error.connect(self._on_worker_error)
 
         self._timer = QtCore.QTimer(self)
-        self._timer.setInterval(3000)
+        # ✅ ИСПРАВЛЕНИЕ: Увеличиваем интервал с 3000 до 10000 мс
+        self._timer.setInterval(10000)
         self._timer.timeout.connect(self.request_refresh)
 
         self.instruments_controller.favorites_updated.connect(lambda *_: self.request_refresh())

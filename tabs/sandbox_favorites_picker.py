@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 
 from PyQt6 import QtCore, QtWidgets
 from t_tech.invest import Client
+
+# ✅ ЛОГИРОВАНИЕ - ВЫВОД В КОНСОЛЬ
+_FAV_LOG = []
+
+
+def _log(msg: str):
+    ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    log_line = f"[FAV-PICKER {ts}] {msg}"
+    _FAV_LOG.append(log_line)
+    if len(_FAV_LOG) > 100:
+        _FAV_LOG.pop(0)
+    print(log_line)  # ✅ ВЫВОД В КОНСОЛЬ
+
 
 from app.config import TOKEN
 from core.instruments_catalog import InstrumentInfo
@@ -75,19 +89,23 @@ class _FavoritesPositionsLoader(QtCore.QObject):
 class FavoritesOnlyPicker(QtWidgets.QWidget):
     instrument_selected = QtCore.pyqtSignal(object)
 
+    # ✅ ИСПРАВЛЕНИЕ: Флаг блокировки рекурсивных обновлений
+    _updating = False
+
     def __init__(
-        self,
-        controller: InstrumentsController,
-        quotes_hub: QuotesHub,
-        positions_hub: Any = None,
-        trading_context: Any = None,
-        parent=None,
+            self,
+            controller: InstrumentsController,
+            quotes_hub: QuotesHub,
+            positions_hub: Any = None,
+            trading_context: Any = None,
+            parent=None,
     ):
         super().__init__(parent)
         self.controller = controller
         self.quotes_hub = quotes_hub
         self.positions_hub = positions_hub
-        self.trading_context = trading_context if trading_context is not None else getattr(parent, "trading_context", None)
+        self.trading_context = trading_context if trading_context is not None else getattr(parent, "trading_context",
+                                                                                           None)
 
         self._selected: Optional[InstrumentInfo] = None
         self._price_by_key: dict[str, str] = {}
@@ -95,6 +113,11 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self._account_id = str(getattr(self.trading_context, "account_id", "") or "")
         self._qty_thread: Optional[QtCore.QThread] = None
         self._qty_worker = None
+        self._render_scheduled = False
+        self._last_render_time: Optional[datetime] = None
+        self._update_count = 0
+
+        _log("FavoritesOnlyPicker initialized")
 
         self.lbl = QtWidgets.QLabel("Избранное")
         self.btn_refresh_prices = QtWidgets.QPushButton("Обновить цены")
@@ -143,6 +166,9 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.refresh_quantities()
 
     def refresh_quantities(self):
+        # ✅ ИСПРАВЛЕНИЕ: Защита от повторных вызовов
+        if self._updating:
+            return
         if self.positions_hub is not None:
             try:
                 self.positions_hub.request_refresh()
@@ -155,7 +181,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
         if not self._account_id:
             self._qty_by_figi = {}
-            self._on_favorites_updated(self.controller.favorites())
+            self._request_render()
             return
 
         self._qty_thread = QtCore.QThread(self)
@@ -178,7 +204,8 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_quantities_loaded(self, qty_by_figi: dict[str, float]):
         self._qty_by_figi = qty_by_figi or {}
-        self._on_favorites_updated(self.controller.favorites())
+        # ✅ ИСПРАВЛЕНИЕ: Используем отложенный рендер
+        self._request_render()
 
     def _on_positions_updated(self, _payload: dict):
         if self.positions_hub is None:
@@ -190,7 +217,8 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
                 continue
             by_figi[figi] = float(self.positions_hub.get_qty(info))
         self._qty_by_figi = by_figi
-        self._on_favorites_updated(self.controller.favorites())
+        # ✅ ИСПРАВЛЕНИЕ: Используем отложенный рендер
+        self._request_render()
 
     def _on_quantities_error(self, tb: str):
         print("===== ERROR (_FavoritesOnlyPicker qty) =====")
@@ -209,56 +237,101 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
             return "0"
         return f"{q:.6f}".rstrip("0").rstrip(".")
 
-    def _on_favorites_updated(self, favs: list[InstrumentInfo]):
-        self.tbl_fav.setRowCount(0)
-        self.tbl_fav.setSortingEnabled(False)
+    def get_price_for(self, info: InstrumentInfo) -> str:
+        p = self.quotes_hub.get_price_text(info)
+        return p if p else "-"
 
-        for info in favs:
-            r = self.tbl_fav.rowCount()
-            self.tbl_fav.insertRow(r)
+    def _on_quotes_updated(self, _payload: dict):
+        # ✅ ИСПРАВЛЕНИЕ: Не обновляем таблицу при каждом изменении котировок
+        # Котировки обновляются каждые 3 секунды - это слишком часто
+        pass
 
-            key = info.fav_key()
-            price = self._price_by_key.get(key, "-")
-            qty = self._qty_text(info)
+    def _request_render(self):
+        # ✅ ПРОВЕРКА 1: Debounce (мин. 500 мс между рендерами)
+        now = datetime.now()
+        if self._last_render_time is not None:
+            elapsed_ms = (now - self._last_render_time).total_seconds() * 1000
+            if elapsed_ms < 500:
+                return
 
-            kind_letter = "S" if info.kind == "share" else ("E" if info.kind == "etf" else ("B" if info.kind == "bond" else "?"))
-            type_item = QtWidgets.QTableWidgetItem(kind_letter)
-            instrument_item = QtWidgets.QTableWidgetItem(f"{info.ticker} | {info.name}")
-            isin_item = QtWidgets.QTableWidgetItem(info.isin)
-            price_item = QtWidgets.QTableWidgetItem(str(price))
-            qty_item = QtWidgets.QTableWidgetItem(str(qty))
-
-            instrument_item.setData(QtCore.Qt.ItemDataRole.UserRole, info)
-
-            self.tbl_fav.setItem(r, 0, type_item)
-            self.tbl_fav.setItem(r, 1, instrument_item)
-            self.tbl_fav.setItem(r, 2, isin_item)
-            self.tbl_fav.setItem(r, 3, price_item)
-            self.tbl_fav.setItem(r, 4, qty_item)
-
-        self.tbl_fav.setSortingEnabled(True)
-
-    def _on_quotes_updated(self, prices: dict):
-        self._price_by_key = {}
-        for info in self.controller.favorites():
-            p = prices.get(info.fav_key())
-            if p is not None:
-                self._price_by_key[info.fav_key()] = f"{float(p):.6f}".rstrip("0").rstrip(".")
-        self._on_favorites_updated(self.controller.favorites())
-
-    def _emit_selected(self, *_):
-        sel = self.tbl_fav.selectionModel().selectedRows()
-        if not sel:
+        # ✅ ПРОВЕРКА 2: Уже запланирован
+        if self._render_scheduled or self._updating:
             return
-        row = sel[0].row()
-        item = self.tbl_fav.item(row, 1)
+
+        self._render_scheduled = True
+        self._update_count += 1
+        _log(f"_request_render #{self._update_count}")
+        QtCore.QTimer.singleShot(100, self._do_render)
+
+    def _do_render(self):
+        self._render_scheduled = False
+        if self._updating:
+            return
+
+        now = datetime.now()
+        if self._last_render_time is not None:
+            elapsed_ms = (now - self._last_render_time).total_seconds() * 1000
+            if elapsed_ms < 500:
+                _log(f"_do_render SKIP: too soon ({elapsed_ms:.0f}ms)")
+                return
+
+        _log("_do_render START")
+        self._last_render_time = now
+        self._updating = True
+        try:
+            self._on_favorites_updated(self.controller.favorites())
+            _log("_do_render DONE")
+        except Exception as e:
+            _log(f"_do_render ERROR: {e}")
+        finally:
+            self._updating = False
+
+    def _on_favorites_updated(self, items: list[InstrumentInfo]):
+        # ✅ ИСПРАВЛЕНИЕ: Отключаем перерисовку на время обновления
+        self.tbl_fav.setUpdatesEnabled(False)
+        self.tbl_fav.blockSignals(True)
+
+        try:
+            self.tbl_fav.setRowCount(0)
+            for info in items:
+                r = self.tbl_fav.rowCount()
+                self.tbl_fav.insertRow(r)
+
+                kind_short = kind_to_short(info.kind)
+                ticker_name = f"{info.ticker} | {info.name}"
+                price = self.get_price_for(info)
+                qty = self._qty_text(info)
+
+                self.tbl_fav.setItem(r, 0, QtWidgets.QTableWidgetItem(kind_short))
+                self.tbl_fav.setItem(r, 1, QtWidgets.QTableWidgetItem(ticker_name))
+                self.tbl_fav.setItem(r, 2, QtWidgets.QTableWidgetItem(info.isin or ""))
+                self.tbl_fav.setItem(r, 3, QtWidgets.QTableWidgetItem(price))
+                self.tbl_fav.setItem(r, 4, QtWidgets.QTableWidgetItem(qty))
+
+                item = self.tbl_fav.item(r, 0)
+                if item is not None:
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, info)
+        finally:
+            self.tbl_fav.blockSignals(False)
+            self.tbl_fav.setUpdatesEnabled(True)
+            self.tbl_fav.viewport().update()
+
+    def _emit_selected(self, row: int, _column: int):
+        item = self.tbl_fav.item(row, 0)
         if item is None:
             return
         info = item.data(QtCore.Qt.ItemDataRole.UserRole)
-        if not info:
-            return
-        self._selected = info
-        self.instrument_selected.emit(info)
+        if info is not None:
+            self._selected = info
+            self.instrument_selected.emit(info)
 
-    def get_price_for(self, info: InstrumentInfo) -> str:
-        return self._price_by_key.get(info.fav_key(), "")
+
+def kind_to_short(kind: str) -> str:
+    kind = (kind or "").lower()
+    if kind == "share":
+        return "SHARE"
+    if kind == "bond":
+        return "BOND"
+    if kind == "etf":
+        return "ETF"
+    return kind.upper() or "?"

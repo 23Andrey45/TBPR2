@@ -144,4 +144,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.journal_tab.stop()
         except Exception:
             pass
+
+        # Закрываем базу данных
+        try:
+            from db import close_db
+            close_db()
+            print("[MainWindow] Database closed")
+        except Exception as e:
+            print(f"[MainWindow] DB close error: {e}")
+
         super().closeEvent(event)
