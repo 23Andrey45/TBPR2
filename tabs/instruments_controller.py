@@ -8,7 +8,7 @@ from PyQt6 import QtCore
 from app.config import FAVORITES_FILE
 from core.favorites_repo import load_favorites, save_favorites
 from core.instruments_catalog import InstrumentInfo
-from tabs.workers import InstrumentsCatalogLoader
+from workers import InstrumentsCatalogLoader
 
 
 class InstrumentsController(QtCore.QObject):

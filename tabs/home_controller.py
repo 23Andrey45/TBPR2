@@ -15,7 +15,7 @@ from core.backtest_runner import BacktestRunner
 from core.strategies import STRATEGIES
 from core.strategies.base import StrategyResult, StrategyContext
 
-from tabs.workers import CandleLoader, DividendsLoader
+from workers import CandleLoader, DividendsLoader
 
 
 class HomeController(QtCore.QObject):
@@ -23,7 +23,7 @@ class HomeController(QtCore.QObject):
     loading_changed = QtCore.pyqtSignal(bool)
 
     candle_received = QtCore.pyqtSignal(object)       # CandleData
-    dividends_ready = QtCore.pyqtSignal(object)       # dict: {"dividends": [...], "range_start": dt|None, "range_end": dt|None}
+    dividends_ready = QtCore.pyqtSignal(object)       # dict
     strategies_ready = QtCore.pyqtSignal(object)      # dict[str, StrategyResult]
     strategy_updated = QtCore.pyqtSignal(object)      # StrategyResult
 
@@ -51,7 +51,6 @@ class HomeController(QtCore.QObject):
         self._params_by_strategy: dict[str, dict[str, Any]] = {}
         self._results: dict[str, StrategyResult] = {}
 
-    # ---- instrument ----
     def set_instrument(self, info: InstrumentInfo | None):
         self._instrument = info
 
@@ -61,8 +60,6 @@ class HomeController(QtCore.QObject):
 
     def is_running(self) -> bool:
         return bool(self._thread and self._thread.isRunning())
-
-    # ------------------- internet -------------------
 
     def start_download(self, instrument_id: str):
         if self.is_running():
@@ -123,8 +120,6 @@ class HomeController(QtCore.QObject):
         self._load_dividends_then_calc()
         self._cleanup_candle_worker()
 
-    # ------------------- CSV -------------------
-
     def load_from_csv(self, path: str):
         if self.is_running():
             return
@@ -164,8 +159,6 @@ class HomeController(QtCore.QObject):
             self.error.emit(traceback.format_exc())
             self.status_changed.emit("Ошибка сохранения CSV")
 
-    # ------------------- strategies API for UI -------------------
-
     def recalc_one(self, strategy_id: str, user_params: dict[str, Any]):
         if not self._candles:
             self.status_changed.emit("Нет свечей для пересчёта")
@@ -181,8 +174,6 @@ class HomeController(QtCore.QObject):
         except Exception:
             self.error.emit(traceback.format_exc())
             self.status_changed.emit("Ошибка пересчёта стратегии")
-
-    # ------------------- dividends + calc -------------------
 
     def _emit_dividends(self, divs: list):
         start = self._candles[0].time if self._candles and hasattr(self._candles[0].time, "tzinfo") else None
@@ -224,36 +215,43 @@ class HomeController(QtCore.QObject):
 
         self._div_thread.started.connect(self._div_worker.run)
         self._div_worker.loaded.connect(self._on_dividends_loaded)
-        self._div_worker.error.connect(self.error.emit)
-
+        self._div_worker.error.connect(self._on_div_worker_error)
         self._div_worker.finished.connect(self._div_thread.quit)
         self._div_worker.finished.connect(self._div_worker.deleteLater)
         self._div_thread.finished.connect(self._div_thread.deleteLater)
-        self._div_thread.finished.connect(self._cleanup_div_worker)
 
         self._div_thread.start()
 
     def _on_dividends_loaded(self, divs: list):
-        self._dividends = divs or []
-        self._emit_dividends(self._dividends)
+        self._dividends = divs
+        self._emit_dividends(divs)
         self._recalc_all_strategies()
+
+    def _on_div_worker_error(self, tb: str):
+        self.error.emit(tb)
+        self._dividends = []
+        self._emit_dividends([])
+        self._recalc_all_strategies()
+
+    def _cleanup_candle_worker(self):
+        self._worker = None
+        self._thread = None
 
     def _cleanup_div_worker(self):
         self._div_worker = None
         self._div_thread = None
 
     def _recalc_all_strategies(self):
-        try:
-            self.status_changed.emit("Считаю стратегии...")
-            ctx = StrategyContext(instrument=self._instrument, dividends=self._dividends)
-            self._results = self._runner.run_all(self._candles, params_by_strategy=self._params_by_strategy, context=ctx)
-            self.strategies_ready.emit(self._results)
-            self.status_changed.emit("Готово")
-        except Exception:
-            self.error.emit(traceback.format_exc())
-            self.status_changed.emit("Ошибка расчёта стратегий")
+        if not self._candles:
+            return
 
-    def _cleanup_candle_worker(self):
-        self._worker = None
-        self._thread = None
-        
+        ctx = StrategyContext(instrument=self._instrument, dividends=self._dividends)
+
+        for strategy_id in STRATEGIES.keys():
+            params = self._params_by_strategy.get(strategy_id, {})
+            try:
+                result = self._runner.run_one(self._candles, strategy_id=strategy_id, user_params=params, context=ctx)
+                self._results[strategy_id] = result
+                self.strategies_ready.emit(self._results)
+            except Exception:
+                pass
