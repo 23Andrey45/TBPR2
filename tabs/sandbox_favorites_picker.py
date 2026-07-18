@@ -23,6 +23,7 @@ from app.config import TOKEN
 from core.instruments_catalog import InstrumentInfo
 from tabs.instruments_controller import InstrumentsController
 from tabs.quotes_hub import QuotesHub
+from workers import TradingStatusLoader
 
 
 class _FavoritesPositionsLoader(QtCore.QObject):
@@ -123,8 +124,8 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.btn_refresh_prices = QtWidgets.QPushButton("Обновить цены")
         self.btn_refresh_qty = QtWidgets.QPushButton("Обновить количество")
 
-        self.tbl_fav = QtWidgets.QTableWidget(0, 5)
-        self.tbl_fav.setHorizontalHeaderLabels(["Type", "Инструмент", "ISIN", "Цена", "Количество"])
+        self.tbl_fav = QtWidgets.QTableWidget(0, 6)
+        self.tbl_fav.setHorizontalHeaderLabels(["Type", "Инструмент", "ISIN", "Цена", "Статус", "Количество"])
         self.tbl_fav.horizontalHeader().setStretchLastSection(True)
         self.tbl_fav.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_fav.setWordWrap(True)
@@ -134,7 +135,8 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.tbl_fav.setColumnHidden(2, True)
         self.tbl_fav.setColumnWidth(1, 250)
         self.tbl_fav.setColumnWidth(3, 100)
-        self.tbl_fav.setColumnWidth(4, 120)
+        self.tbl_fav.setColumnWidth(4, 100)  # Статус
+        self.tbl_fav.setColumnWidth(5, 120)
 
         top = QtWidgets.QHBoxLayout()
         top.addWidget(self.lbl)
@@ -151,6 +153,19 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self.btn_refresh_prices.clicked.connect(self.quotes_hub.request_refresh)
         self.btn_refresh_qty.clicked.connect(self.refresh_quantities)
         self.quotes_hub.quotes_updated.connect(self._on_quotes_updated)
+        self.quotes_hub.trading_status_updated.connect(self._on_trading_status_updated)
+
+        # ✅ Таймер для периодического обновления статусов в UI
+        self._status_update_timer = QtCore.QTimer(self)
+        self._status_update_timer.setInterval(5000)  # 5 секунд
+        self._status_update_timer.timeout.connect(self._update_status_display)
+        self._status_update_timer.start()
+
+        # ✅ Воркер для загрузки статусов
+        self._status_thread: Optional[QtCore.QThread] = None
+        self._status_worker = None
+
+        _log("Status update timer started")
 
         if self.positions_hub is not None and hasattr(self.positions_hub, "positions_updated"):
             self.positions_hub.positions_updated.connect(self._on_positions_updated)
@@ -219,6 +234,51 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self._qty_by_figi = by_figi
         # ✅ ИСПРАВЛЕНИЕ: Используем отложенный рендер
         self._request_render()
+
+    def _on_trading_status_updated(self, statuses: dict):
+        """Обновление статусов торгов."""
+        _log(f"_on_trading_status_updated: {len(statuses)} statuses")
+        # Обновляем отображение статусов
+        self._update_status_display()
+
+    def _update_status_display(self):
+        """Обновить только столбец статусов в таблице."""
+        if self.tbl_fav.rowCount() == 0:
+            return
+
+        _log(f"_update_status_display: {self.tbl_fav.rowCount()} rows")
+
+        for r in range(self.tbl_fav.rowCount()):
+            item = self.tbl_fav.item(r, 0)
+            if item is None:
+                continue
+
+            info = item.data(QtCore.Qt.ItemDataRole.UserRole)
+            if info is None:
+                continue
+
+            figi = (info.figi or info.instrument_id or "").strip()
+            if not figi:
+                continue
+
+            status = self.quotes_hub.get_trading_status(figi)
+            status_text = self._get_status_text(status)
+
+            status_item = self.tbl_fav.item(r, 4)
+            if status_item:
+                status_item.setText(status_text)
+
+                # Tooltip
+                if status:
+                    tooltip = (
+                        f"Статус: {status.get('trading_status', 'N/A')}\n"
+                        f"Торги: {'✅' if status.get('api_trade_available') else '❌'}\n"
+                        f"Market: {'✅' if status.get('market_order_available') else '❌'}\n"
+                        f"Limit: {'✅' if status.get('limit_order_available') else '❌'}"
+                    )
+                    status_item.setToolTip(tooltip)
+
+        _log("_update_status_display: DONE")
 
     def _on_quantities_error(self, tb: str):
         print("===== ERROR (_FavoritesOnlyPicker qty) =====")
@@ -302,19 +362,105 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
                 price = self.get_price_for(info)
                 qty = self._qty_text(info)
 
+                # ✅ Получаем статус торгов
+                figi = (info.figi or info.instrument_id or "").strip()
+                status = self.quotes_hub.get_trading_status(figi) if figi else {}
+                status_text = self._get_status_text(status)
+
                 self.tbl_fav.setItem(r, 0, QtWidgets.QTableWidgetItem(kind_short))
                 self.tbl_fav.setItem(r, 1, QtWidgets.QTableWidgetItem(ticker_name))
                 self.tbl_fav.setItem(r, 2, QtWidgets.QTableWidgetItem(info.isin or ""))
                 self.tbl_fav.setItem(r, 3, QtWidgets.QTableWidgetItem(price))
-                self.tbl_fav.setItem(r, 4, QtWidgets.QTableWidgetItem(qty))
+                self.tbl_fav.setItem(r, 4, QtWidgets.QTableWidgetItem(status_text))
+                self.tbl_fav.setItem(r, 5, QtWidgets.QTableWidgetItem(qty))
 
                 item = self.tbl_fav.item(r, 0)
                 if item is not None:
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, info)
+
+                # ✅ Tooltip с информацией о статусе
+                if status:
+                    tooltip = (
+                        f"Статус: {status.get('trading_status', 'N/A')}\n"
+                        f"Торги: {'✅' if status.get('api_trade_available') else '❌'}\n"
+                        f"Market: {'✅' if status.get('market_order_available') else '❌'}\n"
+                        f"Limit: {'✅' if status.get('limit_order_available') else '❌'}"
+                    )
+                    self.tbl_fav.item(r, 4).setToolTip(tooltip)
         finally:
             self.tbl_fav.blockSignals(False)
             self.tbl_fav.setUpdatesEnabled(True)
             self.tbl_fav.viewport().update()
+
+        # ✅ Загружаем статусы после отрисовки
+        self._request_status_load()
+
+    def _get_status_text(self, status: dict) -> str:
+        """Получить текстовое представление статуса."""
+        if not status:
+            return "⏳ Загрузка"
+
+        if status.get('error'):
+            return "❌ Ошибка"
+
+        if not status.get('api_trade_available', False):
+            return "🔴 Закрыто"
+
+        if status.get('market_order_available', False):
+            return "🟢 Торги"
+
+        return "🟡 Ограничено"
+
+    def _request_status_load(self):
+        """Запросить загрузку статусов для всех FIGI."""
+        if self._status_thread and self._status_thread.isRunning():
+            _log("_request_status_load: SKIP - already running")
+            return
+
+        figis = []
+        for info in self.controller.favorites():
+            figi = (info.figi or info.instrument_id or "").strip()
+            if figi:
+                figis.append(figi)
+
+        if not figis:
+            _log("_request_status_load: SKIP - no figis")
+            return
+
+        _log(f"_request_status_load: {len(figis)} figis")
+
+        self._status_thread = QtCore.QThread(self)
+        self._status_worker = TradingStatusLoader(TOKEN, figis)
+        self._status_worker.moveToThread(self._status_thread)
+
+        self._status_thread.started.connect(self._status_worker.run)
+        self._status_worker.loaded.connect(self._on_status_loaded)
+        self._status_worker.error.connect(self._on_status_error)
+        self._status_worker.finished.connect(self._status_thread.quit)
+        self._status_worker.finished.connect(self._status_worker.deleteLater)
+        self._status_thread.finished.connect(self._status_thread.deleteLater)
+        self._status_thread.finished.connect(self._cleanup_status_worker)
+
+        self._status_thread.start()
+
+    def _on_status_loaded(self, statuses: dict):
+        """Обработка загруженных статусов."""
+        _log(f"_on_status_loaded: {len(statuses)} statuses")
+
+        # Сохраняем в QuotesHub
+        self.quotes_hub._trading_statuses = statuses
+
+        # Обновляем таблицу
+        self._update_status_display()
+
+    def _on_status_error(self, err: str):
+        """Обработка ошибки."""
+        _log(f"_on_status_error: {err}")
+
+    def _cleanup_status_worker(self):
+        """Очистка воркера."""
+        self._status_worker = None
+        self._status_thread = None
 
     def _emit_selected(self, row: int, _column: int):
         item = self.tbl_fav.item(row, 0)

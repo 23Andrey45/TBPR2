@@ -19,6 +19,16 @@ from workers.order_workers import (
     OrderStatesLoader,
 )
 
+# Trading status workers
+from workers.trading_status_workers import (
+    TradingStatusLoader,
+)
+
+# History loader workers
+from workers.history_loader_workers import (
+    SandboxHistoryLoader,
+)
+
 # Instrument workers (из legacy для совместимости)
 from tabs.workers_legacy import (
     InstrumentsCatalogLoader,
@@ -38,6 +48,12 @@ __all__ = [
     'CancelSandboxOrderWorker',
     'RecentDealsLoader',
     'OrderStatesLoader',
+
+    # Trading status workers
+    'TradingStatusLoader',
+
+    # History loader workers
+    'SandboxHistoryLoader',
 
     # Instrument workers
     'InstrumentsCatalogLoader',

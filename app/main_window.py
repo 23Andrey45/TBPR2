@@ -12,6 +12,7 @@ from tabs.tab_events import EventsTab
 from tabs.tab_journal import JournalTab
 from tabs.tab_robots import RobotsTab
 from tabs.tab_sandbox_trading import SandboxTradingTab
+from tabs.tab_history import HistoryTab
 from tabs.trading_context import TradingContext
 
 try:
@@ -71,12 +72,14 @@ class MainWindow(QtWidgets.QMainWindow):
             trading_context=self.trading_context,
             positions_hub=self.positions_hub,
         )
+        self.history_tab = HistoryTab(trading_context=self.trading_context)
         self.journal_tab = JournalTab(trading_context=self.trading_context)
         self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
         self.tabs.addTab(self.home_tab, "Инструменты")
         self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
         self.tabs.addTab(self.robots_tab, "Роботы")
+        self.tabs.addTab(self.history_tab, "История")
         self.tabs.addTab(self.journal_tab, "Журнал")
         self.tabs.addTab(self.events_tab, "События")
 
@@ -137,6 +140,12 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if self.sandbox_trading_tab is not None:
                 self.sandbox_trading_tab.stop()
+        except Exception:
+            pass
+        try:
+            if self.history_tab is not None:
+                # HistoryTab не требует специальной остановки
+                pass
         except Exception:
             pass
         try:
