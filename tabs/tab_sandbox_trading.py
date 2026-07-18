@@ -1,4 +1,4 @@
-# tabs/tab_sandbox_trading.py
+# tabs/tab_sandbox_trading.py — ИСПРАВЛЕННАЯ ВЕРСИЯ
 # Все логи выводятся в консоль через print()
 
 from __future__ import annotations
@@ -49,6 +49,17 @@ sys.excepthook = _global_exception_handler
 from app.config import TOKEN, DATA_DIR, DB_FILE
 from core.instruments_catalog import InstrumentInfo
 
+# ✅ Импортируем ОБЩИЕ воркеры
+from workers import (
+    SandboxAccountsLoader,
+    SandboxMoneyBalanceLoader,
+    SandboxPostLimitOrderLoader,
+    SandboxActiveOrdersLoader,
+    CancelSandboxOrderWorker,
+    RecentDealsLoader,
+    OrderStatesLoader,
+)
+
 # Импортируем базу данных - объявляем переменные ДО импорта
 DB_ENABLED = False
 init_db = None
@@ -82,76 +93,8 @@ from tabs.quotes_hub import QuotesHub
 from tabs.trading_context import TradingContext
 from tabs.instrument_picker_widget import kind_to_short
 from tabs.sandbox_favorites_picker import FavoritesOnlyPicker
-from tabs.sandbox_trading_service_workers import (
-    CancelSandboxOrderWorker,
-    OrderStatesLoader,
-    RecentDealsLoader,
-)
 
 from core.sandbox_orders_api import PlaceOrderAttempt, ActiveOrder
-from tabs.workers import SandboxAccountsLoader, SandboxMoneyBalanceLoader
-
-try:
-    from tabs.workers import SandboxPostLimitOrderLoader, SandboxActiveOrdersLoader
-except Exception:
-    SandboxPostLimitOrderLoader = None  # type: ignore
-    SandboxActiveOrdersLoader = None  # type: ignore
-    from core.sandbox_orders_api import try_post_sandbox_limit_order, list_active_sandbox_orders
-
-
-    class _LocalPostLimitOrderWorker(QtCore.QObject):
-        loaded = QtCore.pyqtSignal(object)
-        error = QtCore.pyqtSignal(str)
-        finished = QtCore.pyqtSignal()
-
-        def __init__(self, token: str, account_id: str, figi: str, direction: str, lots: int, price_str: str):
-            super().__init__()
-            self.token = token
-            self.account_id = account_id
-            self.figi = figi
-            self.direction = direction
-            self.lots = lots
-            self.price_str = price_str
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            try:
-                res = try_post_sandbox_limit_order(
-                    self.token,
-                    self.account_id,
-                    figi=self.figi,
-                    direction=self.direction,
-                    lots=self.lots,
-                    price_str=self.price_str,
-                )
-                self.loaded.emit(res)
-            except Exception:
-                import traceback
-                self.error.emit(traceback.format_exc())
-            finally:
-                self.finished.emit()
-
-
-    class _LocalActiveOrdersWorker(QtCore.QObject):
-        loaded = QtCore.pyqtSignal(object)
-        error = QtCore.pyqtSignal(str)
-        finished = QtCore.pyqtSignal()
-
-        def __init__(self, token: str, account_id: str):
-            super().__init__()
-            self.token = token
-            self.account_id = account_id
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            try:
-                res = list_active_sandbox_orders(self.token, self.account_id)
-                self.loaded.emit(res)
-            except Exception:
-                import traceback
-                self.error.emit(traceback.format_exc())
-            finally:
-                self.finished.emit()
 
 
 class SandboxTradingTab(QtWidgets.QWidget):
@@ -716,10 +659,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._orders_poll_blocked_until = None
         _log("poll_active_orders: START")
         self._active_loading = True
-        if SandboxActiveOrdersLoader is not None:
-            worker = SandboxActiveOrdersLoader(TOKEN, self._account_id)
-        else:
-            worker = _LocalActiveOrdersWorker(TOKEN, self._account_id)
+        worker = SandboxActiveOrdersLoader(TOKEN, self._account_id)
         self._run_worker(worker, self._on_active_orders_loaded)
 
     def _on_active_orders_loaded(self, orders: list[ActiveOrder]):
@@ -760,10 +700,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return
         price_str = self.ed_price.text().strip()
         self.lbl_status.setText(f"Отправляю {side} LIMIT {lots} lot @ {price_str} ...")
-        if SandboxPostLimitOrderLoader is not None:
-            worker = SandboxPostLimitOrderLoader(TOKEN, self._account_id, info.figi, side, lots, price_str)
-        else:
-            worker = _LocalPostLimitOrderWorker(TOKEN, self._account_id, info.figi, side, lots, price_str)
+        worker = SandboxPostLimitOrderLoader(TOKEN, self._account_id, info.figi, side, lots, price_str)
         self._run_worker(worker,
                          lambda res, _info=info, _lots=lots, _p=price_str, _side=side: self._on_limit_result(res, _info,
                                                                                                              _side,
