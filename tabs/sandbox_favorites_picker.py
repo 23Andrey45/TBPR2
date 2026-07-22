@@ -118,7 +118,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self._last_render_time: Optional[datetime] = None
         self._update_count = 0
 
-        _log("FavoritesOnlyPicker initialized")
+        # _log("FavoritesOnlyPicker initialized")
 
         self.lbl = QtWidgets.QLabel("Избранное")
         self.btn_refresh_prices = QtWidgets.QPushButton("Обновить цены")
@@ -165,7 +165,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         self._status_thread: Optional[QtCore.QThread] = None
         self._status_worker = None
 
-        _log("Status update timer started")
+        # _log("Status update timer started")
 
         if self.positions_hub is not None and hasattr(self.positions_hub, "positions_updated"):
             self.positions_hub.positions_updated.connect(self._on_positions_updated)
@@ -237,7 +237,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_trading_status_updated(self, statuses: dict):
         """Обновление статусов торгов."""
-        _log(f"_on_trading_status_updated: {len(statuses)} statuses")
+        # _log(f"_on_trading_status_updated: {len(statuses)} statuses")
         # Обновляем отображение статусов
         self._update_status_display()
 
@@ -246,7 +246,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         if self.tbl_fav.rowCount() == 0:
             return
 
-        _log(f"_update_status_display: {self.tbl_fav.rowCount()} rows")
+        # _log(f"_update_status_display: {self.tbl_fav.rowCount()} rows")
 
         for r in range(self.tbl_fav.rowCount()):
             item = self.tbl_fav.item(r, 0)
@@ -278,7 +278,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
                     )
                     status_item.setToolTip(tooltip)
 
-        _log("_update_status_display: DONE")
+        # _log("_update_status_display: DONE")
 
     def _on_quantities_error(self, tb: str):
         print("===== ERROR (_FavoritesOnlyPicker qty) =====")
@@ -320,7 +320,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
         self._render_scheduled = True
         self._update_count += 1
-        _log(f"_request_render #{self._update_count}")
+        # _log(f"_request_render #{self._update_count}")
         QtCore.QTimer.singleShot(100, self._do_render)
 
     def _do_render(self):
@@ -335,12 +335,12 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
                 _log(f"_do_render SKIP: too soon ({elapsed_ms:.0f}ms)")
                 return
 
-        _log("_do_render START")
+        # _log("_do_render START")
         self._last_render_time = now
         self._updating = True
         try:
             self._on_favorites_updated(self.controller.favorites())
-            _log("_do_render DONE")
+            # _log("_do_render DONE")
         except Exception as e:
             _log(f"_do_render ERROR: {e}")
         finally:
@@ -414,7 +414,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
     def _request_status_load(self):
         """Запросить загрузку статусов для всех FIGI."""
         if self._status_thread and self._status_thread.isRunning():
-            _log("_request_status_load: SKIP - already running")
+            # _log("_request_status_load: SKIP - already running")
             return
 
         figis = []
@@ -427,7 +427,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
             _log("_request_status_load: SKIP - no figis")
             return
 
-        _log(f"_request_status_load: {len(figis)} figis")
+        # _log(f"_request_status_load: {len(figis)} figis")
 
         self._status_thread = QtCore.QThread(self)
         self._status_worker = TradingStatusLoader(TOKEN, figis)
@@ -445,7 +445,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_status_loaded(self, statuses: dict):
         """Обработка загруженных статусов."""
-        _log(f"_on_status_loaded: {len(statuses)} statuses")
+        # _log(f"_on_status_loaded: {len(statuses)} statuses")
 
         # Сохраняем в QuotesHub
         self.quotes_hub._trading_statuses = statuses
@@ -455,7 +455,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
 
     def _on_status_error(self, err: str):
         """Обработка ошибки."""
-        _log(f"_on_status_error: {err}")
+        # _log(f"_on_status_error: {err}")
 
     def _cleanup_status_worker(self):
         """Очистка воркера."""

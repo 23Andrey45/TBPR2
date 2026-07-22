@@ -20,6 +20,17 @@ try:
 except Exception:
     AccountTab = None
 
+try:
+    from tabs.tab_real_account import RealAccountTab
+    REAL_ACCOUNT_AVAILABLE = True
+    print("[MainWindow] RealAccountTab loaded successfully")
+except Exception as e:
+    RealAccountTab = None
+    REAL_ACCOUNT_AVAILABLE = False
+    print(f"[MainWindow] ERROR loading RealAccountTab: {e}")
+    import traceback
+    traceback.print_exc()
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -31,6 +42,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sandbox_trading_tab = None
         self.journal_tab = None
         self.account_tab = None
+        self.real_account_tab = None
 
         if not TOKEN:
             info = QtWidgets.QLabel(
@@ -86,6 +98,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if AccountTab is not None:
             self.account_tab = AccountTab()
             self.tabs.addTab(self.account_tab, "Счета")
+
+        # Вкладка реального счёта
+        if REAL_ACCOUNT_AVAILABLE:
+            self.real_account_tab = RealAccountTab()
+            self.tabs.addTab(self.real_account_tab, "Реальный счёт")
 
         self._hb_t0 = perf_counter()
         self._hb_qtimer = QtCore.QTimer(self)

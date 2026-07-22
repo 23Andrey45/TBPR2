@@ -31,12 +31,12 @@ class TradingStatusLoader(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def run(self):
-        print(f"[TradingStatusLoader] run: {len(self.figis)} figis")
+        # print(f"[TradingStatusLoader] run: {len(self.figis)} figis")
         try:
             statuses = {}
             for i, figi in enumerate(self.figis):
                 try:
-                    print(f"[TradingStatusLoader] checking {figi} ({i + 1}/{len(self.figis)})")
+                    # print(f"[TradingStatusLoader] checking {figi} ({i + 1}/{len(self.figis)})")
                     status = get_trading_status(self.token, figi=figi)
                     statuses[figi] = {
                         'trading_status': status.trading_status,
@@ -45,10 +45,10 @@ class TradingStatusLoader(QtCore.QObject):
                         'limit_order_available': status.limit_order_available,
                         'ticker': status.ticker,
                     }
-                    print(f"[TradingStatusLoader] {figi}: {status.trading_status}")
+                    # print(f"[TradingStatusLoader] {figi}: {status.trading_status}")
                 except Exception as e:
                     # Игнорируем ошибки по отдельным FIGI
-                    print(f"[TradingStatusLoader] {figi} ERROR: {e}")
+                    # print(f"[TradingStatusLoader] {figi} ERROR: {e}")
                     statuses[figi] = {
                         'error': str(e),
                         'trading_status': 'UNKNOWN',
@@ -58,11 +58,11 @@ class TradingStatusLoader(QtCore.QObject):
                         'ticker': figi,
                     }
 
-            print(f"[TradingStatusLoader] loaded {len(statuses)} statuses, emitting")
+            # print(f"[TradingStatusLoader] loaded {len(statuses)} statuses, emitting")
             self.loaded.emit(statuses)
         except Exception as e:
             import traceback
-            print(f"[TradingStatusLoader] ERROR: {e}")
+            # print(f"[TradingStatusLoader] ERROR: {e}")
             traceback.print_exc()
             self.error.emit(traceback.format_exc())
         finally:

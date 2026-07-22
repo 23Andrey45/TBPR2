@@ -16,6 +16,10 @@ SECRETS_DIR = APP_DIR / "secrets"
 TOKEN_FILE = SECRETS_DIR / "tinvest_token.txt"
 TOKEN_ERROR = ""
 
+# Реальный счёт
+REAL_TOKEN_FILE = SECRETS_DIR / "tinvest_real_token.txt"
+REAL_TOKEN_ERROR = ""
+
 
 def _read_token_from_file(path: Path) -> str:
     if not path.exists():
@@ -37,3 +41,9 @@ try:
 except Exception as exc:
     TOKEN = ""
     TOKEN_ERROR = str(exc)
+
+try:
+    REAL_TOKEN = _read_token_from_file(REAL_TOKEN_FILE)
+except Exception as exc:
+    REAL_TOKEN = ""
+    REAL_TOKEN_ERROR = str(exc)

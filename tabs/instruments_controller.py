@@ -8,7 +8,33 @@ from PyQt6 import QtCore
 from app.config import FAVORITES_FILE
 from core.favorites_repo import load_favorites, save_favorites
 from core.instruments_catalog import InstrumentInfo
-from workers import InstrumentsCatalogLoader
+
+
+class InstrumentsCatalogLoader(QtCore.QObject):
+    loaded = QtCore.pyqtSignal(object)  # dict with share, bond, etf lists
+    error = QtCore.pyqtSignal(str)
+    finished = QtCore.pyqtSignal()
+
+    def __init__(self, token: str):
+        super().__init__()
+        self.token = token
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        try:
+            from core.instruments_catalog import fetch_available_shares, fetch_available_bonds, fetch_available_etfs
+
+            payload = {
+                "share": fetch_available_shares(self.token),
+                "bond": fetch_available_bonds(self.token),
+                "etf": fetch_available_etfs(self.token),
+            }
+            self.loaded.emit(payload)
+        except Exception as e:
+            import traceback
+            self.error.emit(traceback.format_exc())
+        finally:
+            self.finished.emit()
 
 
 class InstrumentsController(QtCore.QObject):

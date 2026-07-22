@@ -1,147 +1,142 @@
-# TBPR2 Workers
+# TBPR2
 
-Общие воркеры для всего приложения. Все воркеры работают в отдельных `QThread` и не блокируют UI.
+Локальное Python-приложение (PyQt6) для торговли ценными бумагами на Московской бирже через T-Invest API.
 
-## 📁 Структура
+## Структура проекта
 
 ```
-workers/
-├── __init__.py              # Экспорт всех воркеров
-├── account_workers.py       # Аккаунты и баланс
-├── order_workers.py         # Ордера (размещение, отмена, статусы)
-└── README.md                # Этот файл
+TBPR2/
+├── main.py              # Точка входа приложения
+├── requirements.txt     # Зависимости Python
+├── README.md           # Этот файл
+├── .gitignore          # Игнорируемые файлы
+├── app/                # Модуль главного окна
+│   ├── __init__.py
+│   ├── config.py       # Конфигурация и токен
+│   ├── main_window.py  # Главное окно с вкладками
+│   └── tinvest_client.py # Клиент T-Invest
+├── core/               # Бизнес-логика (без PyQt)
+│   ├── __init__.py
+│   ├── instruments_catalog.py  # Каталог инструментов
+│   ├── trading_logic.py        # Логика торговли
+│   ├── candle_storage.py       # Хранение свечей
+│   ├── candle_cache.py         # Кэш свечей
+│   ├── favorites_repo.py       # Избранное
+│   ├── backtest_runner.py      # Запуск стратегий
+│   ├── dividends_api.py        # API дивидендов
+│   ├── dividends_calc.py       # Расчёт дивидендов
+│   ├── strategies/     # Торговые стратегии
+│   │   ├── base.py
+│   │   ├── grid_basic.py
+│   │   ├── grid_basic_div.py
+│   │   ├── buy_hold_div.py
+│   │   └── sma_cross.py
+│   └── robots/         # Торговые роботы
+│       ├── base.py
+│       ├── grid_simple.py
+│       └── repository.py
+├── tabs/               # Вкладки интерфейса
+│   ├── __init__.py
+│   ├── trading_context.py
+│   ├── instruments_controller.py
+│   ├── instrument_picker_widget.py
+│   ├── candles_panel_widget.py
+│   ├── strategy_results_widget.py
+│   ├── home_controller.py
+│   ├── tab_home.py
+│   ├── quotes_hub.py
+│   ├── positions_hub.py
+│   ├── tab_robots.py
+│   ├── tab_sandbox_trading.py
+│   ├── tab_history.py
+│   ├── tab_journal.py
+│   └── tab_events.py
+├── workers.py          # Фоновые задачи
+├── db/                 # База данных (заглушка)
+├── data/               # Кэш данных
+└── secrets/            # Секреты (токен)
 ```
 
-## 🚀 Использование
+## Установка
 
-### Импорт
-```python
-from workers import (
-    SandboxAccountsLoader,
-    SandboxMoneyBalanceLoader,
-    SandboxPostLimitOrderLoader,
-    SandboxActiveOrdersLoader,
-    CancelSandboxOrderWorker,
-)
+### Требования
+- Python 3.11 или выше
+- pip
+
+### Шаги установки
+
+1. Создайте виртуальное окружение:
+```bash
+python -m venv .venv
 ```
 
-### Запуск воркера
-```python
-def _run_worker(self, worker: QtCore.QObject, on_loaded=None):
-    thread = QtCore.QThread(self)
-    worker.moveToThread(thread)
-    
-    if hasattr(worker, "loaded") and on_loaded is not None:
-        worker.loaded.connect(on_loaded, QtCore.Qt.ConnectionType.QueuedConnection)
-    
-    if hasattr(worker, "finished"):
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-    
-    thread.started.connect(worker.run)
-    thread.finished.connect(thread.deleteLater)
-    
-    self._jobs.append((thread, worker))
-    thread.start()
+2. Активируйте окружение:
+```bash
+# Windows
+.venv\Scripts\activate
+
+# Linux/Mac
+source .venv/bin/activate
 ```
 
-### Пример: Загрузка аккаунтов
-```python
-self._run_worker(
-    SandboxAccountsLoader(TOKEN),
-    self._on_accounts_loaded
-)
-
-def _on_accounts_loaded(self, accounts: list):
-    for acc in accounts:
-        print(f"Account: {acc.account_id}")
+3. Установите зависимости:
+```bash
+pip install -r requirements.txt
 ```
 
-### Пример: Размещение ордера
-```python
-worker = SandboxPostLimitOrderLoader(
-    token=TOKEN,
-    account_id="123456",
-    figi="BBG004730ZK0",
-    direction="BUY",
-    lots=10,
-    price_str="250.00"
-)
+4. Настройте токен:
 
-self._run_worker(worker, self._on_order_result)
+### Токен для песочницы
+   - Создайте файл `secrets/tinvest_token.txt`
+   - Вставьте ваш токен T-Investments
 
-def _on_order_result(self, res: PlaceOrderAttempt):
-    if res.sent:
-        print(f"Order placed: {res.order_id}")
-    else:
-        print(f"Order failed: {res.message}")
+### Токен для реального счёта
+   - Создайте файл `secrets/tinvest_real_token.txt`
+   - Вставьте ваш токен для реального счёта
+
+**Важно:** Файлы с токенами не должны попадать в репозиторий (добавлены в `.gitignore`)
+
+## Запуск
+
+```bash
+python main.py
 ```
 
-## 📊 Доступные воркеры
+## Вкладки приложения
 
-### Account Workers
+1. **Инструменты** - просмотр и выбор акций, облигаций, ETF
+   - Загрузка каталога инструментов
+   - Избранное
+   - Загрузка свечей (интернет/CSV/кэш)
+   - Расчёт стратегий на исторических данных
+   - Дивиденды
 
-| Воркер | Описание |
-|--------|----------|
-| `SandboxAccountsLoader` | Загрузка списка sandbox аккаунтов |
-| `SandboxMoneyBalanceLoader` | Загрузка денежного баланса |
+2. **Торговля** - песочница для торговли (в разработке)
 
-### Order Workers
+3. **Роботы** - управление торговыми роботами (в разработке)
 
-| Воркер | Описание |
-|--------|----------|
-| `SandboxPostLimitOrderLoader` | Размещение LIMIT ордера |
-| `SandboxActiveOrdersLoader` | Загрузка активных ордеров |
-| `CancelSandboxOrderWorker` | Отмена ордера |
-| `RecentDealsLoader` | История сделок |
-| `OrderStatesLoader` | Статусы ордеров |
+4. **История** - история сделок (в разработке)
 
-## 🎯 Принципы
+5. **Журнал** - журнал событий (в разработке)
 
-1. **Один воркер = одна операция**
-2. **Нет блокировок UI** - всё в отдельных потоках
-3. **Переиспользование** - воркеры общие для всех вкладок
-4. **Безопасность** - передача данных только через сигналы
+6. **События** - стрим событий (в разработке)
 
-## 🛡️ Обработка ошибок
+7. **Реальный счёт** - информация по реальному счёту
+   - Баланс портфеля (общая стоимость, акции, облигации, ETF, валюта)
+   - Список позиций с реального счёта (бумаги, количество, средняя цена, текущая цена)
+   - Таблица избранного с позициями реального счёта
 
-Все воркеры отправляют ошибки через сигнал `error`:
+## Стратегии
 
-```python
-worker.error.connect(self._on_worker_error)
+В приложении реализованы следующие стратегии для бэктестинга:
 
-def _on_worker_error(self, tb: str):
-    print(f"Worker error: {tb}")
-```
+- **Grid Basic** - базовая сетка
+- **Grid Basic + Дивиденды** - сетка с учётом дивидендов
+- **Buy & Hold + Дивиденды** - покупка и удержание с дивидендами
+- **SMA Cross** - пересечение скользящих средних
 
-## 📝 Добавление нового воркера
+## Примечания
 
-1. Создать класс в соответствующем файле (`account_workers.py` или `order_workers.py`)
-2. Унаследовать от `QtCore.QObject`
-3. Добавить сигналы `loaded`, `error`, `finished`
-4. Реализовать метод `run()` с декоратором `@QtCore.pyqtSlot()`
-5. Добавить экспорт в `__init__.py`
-
-### Пример
-```python
-class MyNewWorker(QtCore.QObject):
-    loaded = QtCore.pyqtSignal(object)
-    error = QtCore.pyqtSignal(str)
-    finished = QtCore.pyqtSignal()
-
-    def __init__(self, token: str, param: str):
-        super().__init__()
-        self.token = token
-        self.param = param
-
-    @QtCore.pyqtSlot()
-    def run(self):
-        try:
-            result = do_something(self.token, self.param)
-            self.loaded.emit(result)
-        except Exception:
-            import traceback
-            self.error.emit(traceback.format_exc())
-        finally:
-            self.finished.emit()
-```
+- Файл с токеном `secrets/tinvest_token.txt` не должен попадать в репозиторий
+- Кэш данных в папке `data/` не коммитится
+- Приложение работает с T-Invest API через библиотеку `t-tech-investments`
