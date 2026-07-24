@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from typing import Optional
 from PyQt6 import QtCore
 
 
@@ -18,6 +19,8 @@ class AppContext(QtCore.QObject):
     # Сигналы для уведомления об изменениях
     account_changed = QtCore.pyqtSignal(str)
     token_changed = QtCore.pyqtSignal(str)  # "sandbox" или "real"
+    quotes_updated = QtCore.pyqtSignal(object)  # dict[figi, price]
+    portfolio_updated = QtCore.pyqtSignal(object)  # list[PortfolioPosition]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,6 +35,12 @@ class AppContext(QtCore.QObject):
 
         # Текущий режим (False=песочница, True=реальный)
         self._is_real_account: bool = False
+
+        # Котировки (FIGI -> цена)
+        self._quotes: dict[str, float] = {}
+
+        # Позиции портфеля
+        self._portfolio_positions: list = []
 
     # =========================================================================
     # Токены
@@ -145,7 +154,50 @@ class AppContext(QtCore.QObject):
             "is_real_account": self._is_real_account,
             "current_token": self.get_current_token()[:10] + "..." if self.get_current_token() else "❌",
             "current_account_id": self.account_id[:10] + "..." if self.account_id else "❌",
+            "quotes_count": len(self._quotes),
         }
+
+    # =========================================================================
+    # Котировки
+    # =========================================================================
+
+    def update_quotes(self, quotes: dict[str, float]):
+        """Обновить котировки (figi -> price)."""
+        self._quotes.update(quotes)
+        self.quotes_updated.emit(quotes)
+
+    def get_quote(self, figi: str) -> Optional[float]:
+        """Получить котировку по FIGI."""
+        return self._quotes.get(figi)
+
+    def get_all_quotes(self) -> dict[str, float]:
+        """Получить все котировки."""
+        return dict(self._quotes)
+
+    def clear_quotes(self):
+        """Очистить все котировки."""
+        self._quotes.clear()
+        self.quotes_updated.emit({})
+
+    # =========================================================================
+    # Портфель
+    # =========================================================================
+
+    def update_portfolio(self, positions: list):
+        """Обновить позиции портфеля."""
+        self._portfolio_positions = positions
+        self.portfolio_updated.emit(positions)
+
+    def get_portfolio_positions(self) -> list:
+        """Получить позиции портфеля."""
+        return self._portfolio_positions
+
+    def get_position_by_figi(self, figi: str):
+        """Получить позицию по FIGI."""
+        for pos in self._portfolio_positions:
+            if pos.figi == figi:
+                return pos
+        return None
 
     def __str__(self) -> str:
         """Строковое представление."""

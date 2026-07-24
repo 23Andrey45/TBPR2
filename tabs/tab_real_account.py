@@ -16,6 +16,10 @@ from core.orders_api import get_orders, save_orders_to_cache, load_orders_from_c
 from core.instruments_catalog import InstrumentInfo
 from core.favorites_repo import load_favorites, save_favorites
 from app.workers import OrdersLoader
+from tabs.quotes_hub import QuotesHub
+from tabs.instruments_controller import InstrumentsController
+from tabs.trading_panel_widget import TradingPanelWidget
+from core.trading_api import post_order
 
 
 class RealAccountLoader(QtCore.QObject):
@@ -161,8 +165,17 @@ class OrdersLoader(QtCore.QObject):
 class RealAccountTab(QtWidgets.QWidget):
     """Вкладка реального счёта."""
 
-    def __init__(self, parent=None):
+    def __init__(self, instruments_controller: InstrumentsController = None, quotes_hub: QuotesHub = None,
+                 app_context=None, parent=None):
         super().__init__(parent)
+
+        self.instruments_controller = instruments_controller
+        self.quotes_hub = quotes_hub
+        self.app_context = app_context
+
+        # Подписка на обновление котировок
+        if self.app_context:
+            self.app_context.quotes_updated.connect(self._on_quotes_updated)  # type: ignore
 
         self._account_thread: Optional[QtCore.QThread] = None
         self._account_worker: Optional[RealAccountLoader] = None
@@ -252,10 +265,35 @@ class RealAccountTab(QtWidgets.QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
 
-        left_header = QtWidgets.QLabel("📌 Избранное (реальный счёт)")
-        left_header.setStyleSheet(
-            "font-weight: bold; font-size: 11px; padding: 4px; background: #f5f5f5; border-radius: 3px;")
-        left_layout.addWidget(left_header)
+        # Заголовок + кнопка обновления
+        left_header_layout = QtWidgets.QHBoxLayout()
+        left_header_layout.setSpacing(4)
+
+        left_header = QtWidgets.QLabel("📌 Избранное")
+        left_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
+        left_header_layout.addWidget(left_header)
+        left_header_layout.addStretch()
+
+        self.btn_refresh_prices = QtWidgets.QPushButton("💹 Обновить цены")
+        self.btn_refresh_prices.setMinimumHeight(22)
+        self.btn_refresh_prices.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 9px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.btn_refresh_prices.clicked.connect(self._on_refresh_prices_clicked)
+        left_header_layout.addWidget(self.btn_refresh_prices)
+
+        left_layout.addLayout(left_header_layout)
 
         self.fav_table = QtWidgets.QTableWidget(0, 4)
         self.fav_table.setHorizontalHeaderLabels(["Инструмент", "Кол-во", "Цена", "Стоимость"])
@@ -474,7 +512,8 @@ class RealAccountTab(QtWidgets.QWidget):
 
     def _refresh_account(self):
         """Обновить данные счёта."""
-        if self._account_thread and self._account_thread.isRunning():
+        # Проверяем существование потока через hasattr
+        if hasattr(self, '_account_thread') and self._account_thread and self._account_thread.isRunning():
             return
 
         self.btn_refresh.setEnabled(False)
@@ -506,17 +545,18 @@ class RealAccountTab(QtWidgets.QWidget):
                 f"💼 {self._account_info.account_id} ({self._account_info.account_type})"
             )
 
-            # Сохраняем account_id реального счёта в app_context
+        if portfolio:
+            self._portfolio_positions = portfolio.positions
+
+            # Сохраняем account_id и позиции в app_context
             try:
                 from app.app_context import get_app_context
                 ctx = get_app_context()
                 ctx.real_account_id = self._account_info.account_id
-                print(f"[RealAccountTab] Saved real_account_id: {self._account_info.account_id}")
+                ctx.update_portfolio(self._portfolio_positions)
+                print(f"[RealAccountTab] Saved real_account_id and {len(self._portfolio_positions)} positions")
             except Exception as e:
-                print(f"[RealAccountTab] Failed to save account_id: {e}")
-
-        if portfolio:
-            self._portfolio_positions = portfolio.positions
+                print(f"[RealAccountTab] Failed to save to context: {e}")
 
             # Обновляем баланс
             total = portfolio.total_amount_portfolio
@@ -535,6 +575,9 @@ class RealAccountTab(QtWidgets.QWidget):
     def _on_account_finished(self):
         self.btn_refresh.setEnabled(True)
         self.btn_refresh.setText("🔄 Обновить данные счёта")
+        # Очищаем ссылки на поток
+        self._account_thread = None
+        self._account_worker = None
 
     def _update_favorites_table(self):
         """Обновить таблицу избранного с позициями реального счёта."""
@@ -550,8 +593,21 @@ class RealAccountTab(QtWidgets.QWidget):
             # Находим позицию по FIGI
             pos = positions_by_figi.get(info.figi)
             qty = pos.quantity if pos else 0.0
-            price = pos.current_price if pos and pos.current_price else pos.position_avg_price if pos else 0.0
-            value = qty * price if pos and pos.current_price else qty * pos.position_avg_price if pos else 0.0
+
+            # Получаем текущую цену из контекста (если доступно)
+            current_price = 0.0
+            if self.app_context and info.figi:
+                current_price = self.app_context.get_quote(info.figi) or 0.0
+
+            # Если цены из контекста нет, пробуем QuotesHub
+            if not current_price and self.quotes_hub and info:
+                current_price = self.quotes_hub.get_price(info) or 0.0
+
+            # Если цены нет, используем цену из портфеля
+            if not current_price and pos:
+                current_price = pos.current_price or pos.position_avg_price or 0.0
+
+            value = qty * current_price if current_price else 0.0
 
             # Столбец "Инструмент" (Ticker + Name в двух строках)
             instrument_widget = QtWidgets.QWidget()
@@ -584,8 +640,8 @@ class RealAccountTab(QtWidgets.QWidget):
             qty_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.fav_table.setItem(r, 1, qty_item)
 
-            # Цена
-            price_item = QtWidgets.QTableWidgetItem(f"{price:,.2f}" if price else "-")
+            # Цена (текущая рыночная)
+            price_item = QtWidgets.QTableWidgetItem(f"{current_price:,.2f}" if current_price else "-")
             price_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.fav_table.setItem(r, 2, price_item)
 
@@ -598,6 +654,22 @@ class RealAccountTab(QtWidgets.QWidget):
     def _on_fav_widget_clicked(self, row: int):
         """Обработка клика по виджету инструмента."""
         self._on_fav_selected(row, 0)
+
+    def _on_refresh_prices_clicked(self):
+        """Обновить цены вручную."""
+        if self.quotes_hub:
+            self.quotes_hub.request_refresh()
+            self.btn_refresh_prices.setText("⏳ Обновление...")
+            self.btn_refresh_prices.setEnabled(False)
+
+    def _on_quotes_updated(self, quotes: dict):
+        """Обновление котировок из контекста."""
+        # Обновляем таблицу избранного
+        self._update_favorites_table()
+
+        # Возвращаем кнопку в исходное состояние
+        self.btn_refresh_prices.setText("💹 Обновить цены")
+        self.btn_refresh_prices.setEnabled(True)
 
     def _on_fav_selected(self, row: int, column: int):
         """При выборе инструмента в избранном - загрузить историю."""
@@ -937,6 +1009,18 @@ class RealAccountTab(QtWidgets.QWidget):
         filter_state = "включен" if self.chk_filter_enabled.isChecked() else "выключен"
         self.lbl_filter.setText(f"📈 {info.ticker} | {info.name} (фильтр: {filter_state})")
 
+        # Получаем текущую цену и устанавливаем в торговую панель
+        current_price = self.app_context.get_quote(info.figi) if self.app_context else 0.0
+        if not current_price:
+            # Пытаемся получить из портфеля
+            positions_by_figi = {pos.figi: pos for pos in self._portfolio_positions}
+            pos = positions_by_figi.get(info.figi)
+            if pos:
+                current_price = pos.current_price or pos.position_avg_price or 0.0
+
+        if hasattr(self, 'trading_panel'):
+            self.trading_panel.set_instrument(info, current_price)
+
         # Обновляем отображение заявок с учётом фильтра
         if self._all_orders:
             self._on_orders_loaded(self._all_orders)
@@ -988,3 +1072,61 @@ class RealAccountTab(QtWidgets.QWidget):
         print("=" * 60)
         print(error)
         print("=" * 60 + "\n")
+
+    def _on_buy_clicked(self, instrument: InstrumentInfo, lots: int, price: float):
+        """Выставить заявку на покупку."""
+        if not self.app_context:
+            self.trading_panel.set_result(False, "Нет контекста приложения")
+            return
+
+        token = self.app_context.get_current_token()
+        account_id = self.app_context.account_id
+
+        if not token or not account_id:
+            self.trading_panel.set_result(False, "Нет токена или account_id")
+            return
+
+        result = post_order(
+            token=token,
+            account_id=account_id,
+            figi=instrument.figi,
+            quantity=lots,
+            price=price,
+            direction="buy",
+        )
+
+        if result.success:
+            self.trading_panel.set_result(True, f"Заявка {result.order_id} выставлена")
+            # Обновляем список заявок
+            self._refresh_orders()
+        else:
+            self.trading_panel.set_result(False, result.error or result.message)
+
+    def _on_sell_clicked(self, instrument: InstrumentInfo, lots: int, price: float):
+        """Выставить заявку на продажу."""
+        if not self.app_context:
+            self.trading_panel.set_result(False, "Нет контекста приложения")
+            return
+
+        token = self.app_context.get_current_token()
+        account_id = self.app_context.account_id
+
+        if not token or not account_id:
+            self.trading_panel.set_result(False, "Нет токена или account_id")
+            return
+
+        result = post_order(
+            token=token,
+            account_id=account_id,
+            figi=instrument.figi,
+            quantity=lots,
+            price=price,
+            direction="sell",
+        )
+
+        if result.success:
+            self.trading_panel.set_result(True, f"Заявка {result.order_id} выставлена")
+            # Обновляем список заявок
+            self._refresh_orders()
+        else:
+            self.trading_panel.set_result(False, result.error or result.message)

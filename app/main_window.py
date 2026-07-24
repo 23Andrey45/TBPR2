@@ -12,7 +12,6 @@ from tabs.tab_home import HomeTab
 from tabs.tab_events import EventsTab
 from tabs.tab_journal import JournalTab
 from tabs.tab_robots import RobotsTab
-from tabs.tab_sandbox_trading import SandboxTradingTab
 from tabs.tab_history import HistoryTab
 from tabs.trading_context import TradingContext
 
@@ -55,7 +54,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1400, 800)
 
         self.home_tab = None
-        self.sandbox_trading_tab = None
         self.journal_tab = None
         self.account_tab = None
         self.real_account_tab = None
@@ -85,7 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Синхронизируем trading_context с app_context
         self.trading_context.account_changed.connect(lambda aid: setattr(self.app_context, 'sandbox_account_id', aid))
-        self.quotes_hub = QuotesHub(TOKEN, self.instruments_controller, parent=self)
+        self.quotes_hub = QuotesHub(TOKEN, self.instruments_controller, app_context=self.app_context, parent=self)
         self.positions_hub = PositionsHub(
             TOKEN,
             self.instruments_controller,
@@ -97,11 +95,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.positions_hub.start()
 
         self.home_tab = HomeTab(instruments_controller=self.instruments_controller)
-        self.sandbox_trading_tab = SandboxTradingTab(
-            instruments_controller=self.instruments_controller,
-            quotes_hub=self.quotes_hub,
-            trading_context=self.trading_context,
-        )
         self.robots_tab = RobotsTab(
             instruments_controller=self.instruments_controller,
             quotes_hub=self.quotes_hub,
@@ -113,7 +106,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
         self.tabs.addTab(self.home_tab, "Инструменты")
-        self.tabs.addTab(self.sandbox_trading_tab, "Торговля SB")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.history_tab, "История")
         self.tabs.addTab(self.journal_tab, "Журнал")
@@ -125,7 +117,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Вкладка реального счёта
         if REAL_ACCOUNT_AVAILABLE:
-            self.real_account_tab = RealAccountTab()
+            self.real_account_tab = RealAccountTab(
+                instruments_controller=self.instruments_controller,
+                quotes_hub=self.quotes_hub,
+                app_context=self.app_context,
+            )
             self.tabs.addTab(self.real_account_tab, "Реальный счёт")
 
         # Вкладка отладки
