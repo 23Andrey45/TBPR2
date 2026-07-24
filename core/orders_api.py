@@ -144,11 +144,24 @@ def get_orders(
                 print(
                     f"[get_orders] Заявка {order_id[:8]}...: price_raw={order_price}, price={price}, executed={executed_price}")
 
-                # Тип заявки
-                order_type_raw = getattr(order_resp, "order_type", "")
-                order_type = "buy" if (isinstance(order_type_raw, int) and order_type_raw == 1) else "sell"
-                if isinstance(order_type_raw, str):
-                    order_type = order_type_raw.lower()
+                # Тип заявки (direction: Buy/Sell)
+                direction_raw = getattr(order_resp, "direction", "")
+                if isinstance(direction_raw, str):
+                    # ORDER_DIRECTION_BUY -> BUY, ORDER_DIRECTION_SELL -> SELL
+                    if "BUY" in direction_raw.upper():
+                        order_type = "BUY"
+                    elif "SELL" in direction_raw.upper():
+                        order_type = "SELL"
+                    else:
+                        order_type = direction_raw.upper()
+                elif hasattr(direction_raw, "name"):
+                    # Enum: ORDER_DIRECTION_BUY -> BUY
+                    name = direction_raw.name.upper()
+                    order_type = "BUY" if "BUY" in name else "SELL"
+                elif hasattr(direction_raw, "value"):
+                    order_type = "BUY" if direction_raw.value == 1 else "SELL"
+                else:
+                    order_type = "BUY"
 
                 # Статус
                 status_raw = getattr(order_resp, "status", "")

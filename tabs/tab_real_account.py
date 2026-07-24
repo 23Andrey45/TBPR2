@@ -15,6 +15,7 @@ from core.operations_api import get_operations, save_operations_to_cache, load_o
 from core.orders_api import get_orders, save_orders_to_cache, load_orders_from_cache, Order, clear_orders_cache
 from core.instruments_catalog import InstrumentInfo
 from core.favorites_repo import load_favorites, save_favorites
+from app.workers import OrdersLoader
 
 
 class RealAccountLoader(QtCore.QObject):
@@ -505,6 +506,15 @@ class RealAccountTab(QtWidgets.QWidget):
                 f"💼 {self._account_info.account_id} ({self._account_info.account_type})"
             )
 
+            # Сохраняем account_id реального счёта в app_context
+            try:
+                from app.app_context import get_app_context
+                ctx = get_app_context()
+                ctx.real_account_id = self._account_info.account_id
+                print(f"[RealAccountTab] Saved real_account_id: {self._account_info.account_id}")
+            except Exception as e:
+                print(f"[RealAccountTab] Failed to save account_id: {e}")
+
         if portfolio:
             self._portfolio_positions = portfolio.positions
 
@@ -841,13 +851,13 @@ class RealAccountTab(QtWidgets.QWidget):
                 order.created.strftime("%Y-%m-%d %H:%M") if order.created else "-")
             self.orders_table.setItem(r, 0, QtWidgets.QTableWidgetItem(date_str))
 
-            # Тип заявки
-            order_type = order.order_type.upper()
+            # Тип заявки (Buy/Sell)
+            order_type = order.order_type if order.order_type else ""
             type_item = QtWidgets.QTableWidgetItem(order_type)
-            if order_type == "BUY":
-                type_item.setForeground(QtGui.QColor("#f44336"))
-            elif order_type == "SELL":
-                type_item.setForeground(QtGui.QColor("#4CAF50"))
+            if "BUY" in order_type:
+                type_item.setForeground(QtGui.QColor("#4CAF50"))  # зелёный для покупки
+            elif "SELL" in order_type:
+                type_item.setForeground(QtGui.QColor("#f44336"))  # красный для продажи
             self.orders_table.setItem(r, 1, type_item)
 
             # Ticker

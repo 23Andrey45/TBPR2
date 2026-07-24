@@ -1,4 +1,4 @@
-# tabs\tab_home.py
+# tabs/tab_home.py
 from __future__ import annotations
 
 from typing import Optional
@@ -13,6 +13,7 @@ from tabs.home_controller import HomeController
 from tabs.instruments_controller import InstrumentsController
 from tabs.instrument_picker_widget import InstrumentPickerWidget, kind_to_short
 from tabs.candles_panel_widget import CandlesPanelWidget
+from app.workers import InstrumentsCatalogLoader, CandleLoader, DividendsLoader
 
 
 class HomeTab(QtWidgets.QWidget):
@@ -23,7 +24,7 @@ class HomeTab(QtWidgets.QWidget):
         self.candles_controller = HomeController(token=self.instr_controller.token, parent=self)
 
         self._selected: Optional[InstrumentInfo] = None
-        self._last_source: str = ""  # internet|file|cache
+        self._last_source: str = ""
 
         # ---- picker (слева)
         self.picker = InstrumentPickerWidget(controller=self.instr_controller, parent=self)
@@ -32,7 +33,7 @@ class HomeTab(QtWidgets.QWidget):
         # ---- candles panel (справа)
         self.panel = CandlesPanelWidget(parent=self)
 
-        # связать “пересчитать стратегию”
+        # связать "пересчитать стратегию"
         self.panel.strategies_widget.recalc_requested.connect(self.candles_controller.recalc_one)
 
         # layout
@@ -65,8 +66,6 @@ class HomeTab(QtWidgets.QWidget):
     def stop_loading(self):
         self.candles_controller.stop()
 
-    # -------- instrument selection --------
-
     def _on_instrument_selected(self, info: InstrumentInfo):
         self._selected = info
         self.candles_controller.set_instrument(info)
@@ -88,8 +87,6 @@ class HomeTab(QtWidgets.QWidget):
         else:
             self.panel.set_status_text(f"Кэш не найден: {cache_file.name}")
 
-    # -------- actions --------
-
     def _require_selected(self) -> bool:
         if self._selected is None:
             self.panel.set_status_text("Сначала выбери инструмент (двойной клик)")
@@ -108,15 +105,11 @@ class HomeTab(QtWidgets.QWidget):
         self.panel.clear_candles()
         self.candles_controller.load_from_csv(path)
 
-    # -------- dividends display --------
-
     def _on_dividends_ready(self, payload: dict):
         divs = payload.get("dividends", []) or []
         rs = payload.get("range_start")
         re = payload.get("range_end")
         self.panel.set_dividends(divs, rs, re)
-
-    # -------- misc --------
 
     def _print_error(self, tb: str):
         print("===== ERROR (HomeTab) =====")

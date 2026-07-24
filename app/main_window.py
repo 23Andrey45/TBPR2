@@ -3,7 +3,8 @@ from time import perf_counter
 
 from PyQt6 import QtCore, QtWidgets
 
-from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE
+from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE, REAL_TOKEN, REAL_TOKEN_ERROR
+from app.app_context import AppContext, init_app_context
 from tabs.instruments_controller import InstrumentsController
 from tabs.positions_hub import PositionsHub
 from tabs.quotes_hub import QuotesHub
@@ -22,6 +23,7 @@ except Exception:
 
 try:
     from tabs.tab_real_account import RealAccountTab
+
     REAL_ACCOUNT_AVAILABLE = True
     print("[MainWindow] RealAccountTab loaded successfully")
 except Exception as e:
@@ -29,6 +31,20 @@ except Exception as e:
     REAL_ACCOUNT_AVAILABLE = False
     print(f"[MainWindow] ERROR loading RealAccountTab: {e}")
     import traceback
+
+    traceback.print_exc()
+
+try:
+    from tabs.tab_debug import DebugTab
+
+    DEBUG_TAB_AVAILABLE = True
+    print("[MainWindow] DebugTab loaded successfully")
+except Exception as e:
+    DebugTab = None
+    DEBUG_TAB_AVAILABLE = False
+    print(f"[MainWindow] ERROR loading DebugTab: {e}")
+    import traceback
+
     traceback.print_exc()
 
 
@@ -43,6 +59,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.journal_tab = None
         self.account_tab = None
         self.real_account_tab = None
+        self.debug_tab = None
+
+        # Создаём контекст приложения
+        self.app_context = init_app_context(sandbox_token=TOKEN, real_token=REAL_TOKEN)
+        print(f"[MainWindow] AppContext initialized: {self.app_context}")
 
         if not TOKEN:
             info = QtWidgets.QLabel(
@@ -61,6 +82,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.instruments_controller = InstrumentsController(TOKEN, parent=self)
         self.trading_context = TradingContext(parent=self)
+
+        # Синхронизируем trading_context с app_context
+        self.trading_context.account_changed.connect(lambda aid: setattr(self.app_context, 'sandbox_account_id', aid))
         self.quotes_hub = QuotesHub(TOKEN, self.instruments_controller, parent=self)
         self.positions_hub = PositionsHub(
             TOKEN,
@@ -89,7 +113,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
         self.tabs.addTab(self.home_tab, "Инструменты")
-        self.tabs.addTab(self.sandbox_trading_tab, "Торговля")
+        self.tabs.addTab(self.sandbox_trading_tab, "Торговля SB")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.history_tab, "История")
         self.tabs.addTab(self.journal_tab, "Журнал")
@@ -103,6 +127,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if REAL_ACCOUNT_AVAILABLE:
             self.real_account_tab = RealAccountTab()
             self.tabs.addTab(self.real_account_tab, "Реальный счёт")
+
+        # Вкладка отладки
+        if DEBUG_TAB_AVAILABLE:
+            self.debug_tab = DebugTab(app_context=self.app_context)
+            self.tabs.addTab(self.debug_tab, "🔍 Отладка")
 
         self._hb_t0 = perf_counter()
         self._hb_qtimer = QtCore.QTimer(self)
@@ -123,6 +152,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if self.tabs.widget(index) is self.account_tab:
             self.account_tab.refresh_accounts()
+
+        # Отладочная вкладка уже получает обновления через app_context
 
     def _on_quotes_error(self, err: str):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
