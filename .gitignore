@@ -11,3 +11,9 @@ __pycache__/
 *.env
 *token*
 !secrets/tinvest_real_token.txt
+
+# Data
+data/
+!data/
+data/*.json
+!data/*.json
