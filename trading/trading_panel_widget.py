@@ -1,4 +1,4 @@
-# tabs/trading_panel_widget.py
+# trading/trading_panel_widget.py
 """
 Виджет панели торговли.
 Выбор инструмента, ввод лотов и цены, кнопки Buy/Sell.

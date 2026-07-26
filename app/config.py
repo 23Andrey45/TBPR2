@@ -2,7 +2,7 @@
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = APP_DIR / "data"
+DATA_DIR = APP_DIR / "!data"
 # FAVORITES_FILE = DATA_DIR / "favorites_shares.json"
 # новый файл избранного (чтобы не конфликтовать со старым форматом)
 FAVORITES_FILE = DATA_DIR / "favorites_instruments.json"
@@ -12,7 +12,7 @@ CANDLES_DIR = DATA_DIR / "candles_cache"
 DB_DIR = APP_DIR / "db"
 DB_FILE = DATA_DIR / "tbpr.db"
 
-SECRETS_DIR = APP_DIR / "secrets"
+SECRETS_DIR = APP_DIR / "!secrets"
 TOKEN_FILE = SECRETS_DIR / "tinvest_token.txt"
 TOKEN_ERROR = ""
 

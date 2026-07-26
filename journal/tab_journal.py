@@ -1,23 +1,26 @@
+# journal/tab_journal.py
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
 from app.config import DATA_DIR
+from app.app_context import AppContext
+from core.utils import parse_datetime, format_msk_time
 
 
 class JournalTab(QtWidgets.QWidget):
     ORDERS_CACHE_FILE = DATA_DIR / "orders_cache.json"
     FILLS_CACHE_FILE = DATA_DIR / "fills_cache.json"
 
-    def __init__(self, trading_context, parent=None):
+    def __init__(self, app_context: AppContext, parent=None):
         super().__init__(parent)
-        self.trading_context = trading_context
-        self._account_id = str(getattr(self.trading_context, "account_id", "") or "")
+        self.app_context = app_context
+        self._account_id = str(getattr(self.app_context, "sandbox_account_id", "") or "")
 
         self.lbl_title = QtWidgets.QLabel("Журнал заявок")
         self.btn_refresh = QtWidgets.QPushButton("Обновить")
@@ -56,8 +59,8 @@ class JournalTab(QtWidgets.QWidget):
 
         self.btn_refresh.clicked.connect(self.refresh)
         self.cb_all_accounts.toggled.connect(lambda *_: self.refresh())
-        if hasattr(self.trading_context, "account_changed"):
-            self.trading_context.account_changed.connect(self._on_account_changed)
+        if hasattr(self.app_context, "account_changed"):
+            self.app_context.account_changed.connect(self._on_account_changed)
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(3000)
@@ -162,25 +165,9 @@ class JournalTab(QtWidgets.QWidget):
             return {}
 
     def _parse_dt(self, value: Any) -> datetime:
-        try:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except Exception:
-            return datetime.min
+        """Распарсить datetime (для сортировки)."""
+        return parse_datetime(value) or datetime.min
 
     def _format_msk_time(self, value: Any) -> str:
-        raw = str(value or "")
-        if not raw:
-            return ""
-        dt = self._parse_iso(raw)
-        if dt is None:
-            return raw
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        dt_msk = dt.astimezone(timezone.utc) + timedelta(hours=3)
-        return dt_msk.strftime("%Y-%m-%d %H:%M:%S")
-
-    def _parse_iso(self, value: str) -> datetime | None:
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except Exception:
-            return None
+        """Форматировать время в MSK."""
+        return format_msk_time(value)

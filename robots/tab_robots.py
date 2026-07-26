@@ -8,6 +8,7 @@ import uuid
 from PyQt6 import QtCore, QtWidgets
 
 from app.config import TOKEN
+from app.app_context import AppContext
 from core.instruments_catalog import InstrumentInfo, fetch_min_price_increment
 from robots.grid_simple import build_fixed_grid_levels, build_grid_view_rows
 from robots.repository import load_robots, save_robots
@@ -15,7 +16,6 @@ from robots.robots_logic import _RobotsSyncWorker, _fmt_price, _price_key
 from instruments.instruments_controller import InstrumentsController
 from market_data.quotes_hub import QuotesHub
 from sandbox_trading.tab_sandbox_trading import FavoritesOnlyPicker
-from trading.trading_context import TradingContext
 
 
 class RobotsTab(QtWidgets.QWidget):
@@ -23,7 +23,7 @@ class RobotsTab(QtWidgets.QWidget):
         self,
         instruments_controller: InstrumentsController,
         quotes_hub: QuotesHub,
-        trading_context: TradingContext,
+        app_context: AppContext,
         positions_hub=None,
         parent=None,
     ):
@@ -31,11 +31,11 @@ class RobotsTab(QtWidgets.QWidget):
 
         self.instr_controller = instruments_controller
         self.quotes_hub = quotes_hub
-        self.trading_context = trading_context
+        self.app_context = app_context
         self._selected_instrument: InstrumentInfo | None = None
         self._current_robot_id: str | None = None
         self._robots: list[dict] = load_robots()
-        self._account_id = self.trading_context.account_id
+        self._account_id = self.app_context.sandbox_account_id
         self._sync_thread: QtCore.QThread | None = None
         self._sync_worker = None
         self.positions_hub = positions_hub
@@ -45,12 +45,12 @@ class RobotsTab(QtWidgets.QWidget):
             controller=self.instr_controller,
             quotes_hub=self.quotes_hub,
             positions_hub=self.positions_hub,
-            trading_context=self.trading_context,
+            app_context=self.app_context,
             parent=self,
         )
         self.favorites_panel.instrument_selected.connect(self._on_instrument_selected)
         self.quotes_hub.quotes_updated.connect(self._on_quotes_updated)
-        self.trading_context.account_changed.connect(self._on_account_changed)
+        self.app_context.account_changed.connect(self._on_account_changed)
 
         # Управление роботом
         self.ed_start_price = QtWidgets.QLineEdit()
@@ -186,17 +186,23 @@ class RobotsTab(QtWidgets.QWidget):
             return
 
         current_price = start_price
-        price_text = self.quotes_hub.get_price_text(self._selected_instrument) or self.favorites_panel.get_price_for(
-            self._selected_instrument
-        )
-        try:
-            if price_text and price_text != "-":
-                current_price = float(price_text.replace(",", "."))
-        except Exception:
-            pass
+        price_text = self.quotes_hub.get_price_text(self._selected_instrument) or self.favorites_panel.get_price_for(self._selected_instrument)
+        if price_text and price_text != "-":
+            current_price = float(price_text)
 
+        tick = fetch_min_price_increment(TOKEN, figi=self._selected_instrument.figi) or 0.0
+        levels = build_fixed_grid_levels(
+            start_price=start_price,
+            step_pct=step_pct,
+            steps_down=steps_down,
+            steps_up=steps_up,
+            tick_size=tick,
+        )
+        rows = build_grid_view_rows(levels=levels, last_trade_price=start_price, current_price=current_price)
+
+        robot_id = str(uuid.uuid4())
         rec = {
-            "robot_id": str(uuid.uuid4())[:8],
+            "robot_id": robot_id,
             "robot_type": "grid_simple",
             "instrument_kind": self._selected_instrument.kind,
             "instrument_ticker": self._selected_instrument.ticker,
@@ -208,157 +214,43 @@ class RobotsTab(QtWidgets.QWidget):
             "step_pct": step_pct,
             "steps_down": steps_down,
             "steps_up": steps_up,
+            "grid_levels": levels,
             "last_trade_price": start_price,
             "current_price": current_price,
-            "status": "Остановлен",
-            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "tick_size": 0.0,
-            "grid_levels": [],
+            "status": "Новый",
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "active_orders": [],
             "deals_by_level": {},
         }
-
-        tick = fetch_min_price_increment(
-            token=TOKEN,
-            figi=self._selected_instrument.figi,
-            instrument_id=self._selected_instrument.instrument_id,
-        )
-        if tick is None or tick <= 0:
-            tick = 0.0
-        rec["tick_size"] = float(tick)
-
-        levels = build_fixed_grid_levels(
-            start_price=float(start_price),
-            step_pct=float(step_pct),
-            steps_down=int(steps_down),
-            steps_up=int(steps_up),
-            tick_size=float(tick),
-        )
-        rec["grid_levels"] = levels
-
         self._robots.append(rec)
         save_robots(self._robots)
-        self._render_robots_table(select_robot_id=rec["robot_id"])
+        self._render_robots_table()
+        self._current_robot_id = robot_id
         self._render_grid_for(rec)
-        self.lbl_status.setText(
-            f"Робот сформирован (шаг цены: {float(tick):g}, старт: {start_price:g})"
-        )
+        self.lbl_status.setText(f"Робот {robot_id[:8]}... сформирован")
 
-    def _render_robots_table(self, select_robot_id: str | None = None):
-        target_id = select_robot_id or self._current_robot_id
-        self.tbl_robots.setRowCount(0)
-        for rec in self._robots:
-            r = self.tbl_robots.rowCount()
-            self.tbl_robots.insertRow(r)
-
-            self.tbl_robots.setItem(r, 0, QtWidgets.QTableWidgetItem(str(rec.get("robot_id", ""))))
-            self.tbl_robots.setItem(r, 1, QtWidgets.QTableWidgetItem(str(rec.get("robot_type", ""))))
-            self.tbl_robots.setItem(r, 2, QtWidgets.QTableWidgetItem(str(rec.get("instrument_ticker", ""))))
-            self.tbl_robots.setItem(r, 3, QtWidgets.QTableWidgetItem(str(rec.get("current_price", ""))))
-            self.tbl_robots.setItem(r, 4, QtWidgets.QTableWidgetItem(str(rec.get("status", ""))))
-            self.tbl_robots.setItem(r, 5, QtWidgets.QTableWidgetItem(str(rec.get("created_at", ""))))
-            self.tbl_robots.setItem(r, 6, QtWidgets.QTableWidgetItem(self._total_deals_text(rec)))
-            rid = str(rec.get("robot_id", ""))
-            del_item = QtWidgets.QTableWidgetItem("Удалить")
-            del_item.setData(QtCore.Qt.ItemDataRole.UserRole, rid)
-            self.tbl_robots.setItem(r, 7, del_item)
-
-            if target_id and rid == target_id:
-                self.tbl_robots.selectRow(r)
-
-    def _delete_robot(self, robot_id: str):
-        self._robots = [x for x in self._robots if str(x.get("robot_id", "")) != robot_id]
-        if self._current_robot_id == robot_id:
-            self._current_robot_id = None
+    def _set_selected_robot_status(self, status: str):
+        robot_id = self._selected_robot_id()
+        if not robot_id:
+            self.lbl_status.setText("Выбери робота")
+            return
+        rec = self._find_robot(robot_id)
+        if rec is None:
+            return
+        rec["status"] = status
         save_robots(self._robots)
         self._render_robots_table()
-        self.tbl_grid.setRowCount(0)
-        self.lbl_status.setText("Робот удален")
+        self.lbl_status.setText(f"Статус: {status}")
 
-    def _on_robot_table_clicked(self, row: int, column: int):
-        if column != 7:
-            return
-        item = self.tbl_robots.item(row, 7)
-        if item is None:
-            return
-        rid = str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "")
-        if rid:
-            self._delete_robot(rid)
-
-    def _total_deals_text(self, rec: dict) -> str:
-        deals_by_level = rec.get("deals_by_level", {}) or {}
-        total_b = 0
-        total_s = 0
-        for row in deals_by_level.values():
-            if not isinstance(row, dict):
-                continue
-            total_b += int(row.get("b", 0) or 0)
-            total_s += int(row.get("s", 0) or 0)
-        return f"{total_b} | {total_s}"
-
-    def _update_robot_row_price(self, robot_id: str, price: float):
-        if not robot_id:
-            return
-        for row in range(self.tbl_robots.rowCount()):
-            id_item = self.tbl_robots.item(row, 0)
-            if id_item is None:
-                continue
-            if str(id_item.text()) != robot_id:
-                continue
-            price_item = self.tbl_robots.item(row, 3)
-            if price_item is None:
-                price_item = QtWidgets.QTableWidgetItem()
-                self.tbl_robots.setItem(row, 3, price_item)
-            price_item.setText(f"{price:.6f}".rstrip("0").rstrip("."))
-            return
-
-    def _schedule_sync(self):
-        if not self.isVisible():
-            return
-        if not self._account_id:
-            return
-        if self._sync_thread and self._sync_thread.isRunning():
-            return
-
-        robots = copy.deepcopy(self._robots)
-        self._sync_thread = QtCore.QThread(self)
-        self._sync_worker = _RobotsSyncWorker(TOKEN, self._account_id, robots)
-        self._sync_worker.moveToThread(self._sync_thread)
-
-        self._sync_thread.started.connect(self._sync_worker.run)
-        self._sync_worker.loaded.connect(self._on_sync_loaded)
-        self._sync_worker.finished.connect(self._sync_thread.quit)
-        self._sync_worker.finished.connect(self._sync_worker.deleteLater)
-        self._sync_thread.finished.connect(self._sync_thread.deleteLater)
-        self._sync_thread.finished.connect(self._on_sync_finished)
-
-        self._sync_thread.start()
-
-    def _on_sync_loaded(self, robots: list[dict]):
-        selected_robot_id = self._selected_robot_id()
-        self._robots = robots or []
-        save_robots(self._robots)
-        self._render_robots_table(select_robot_id=selected_robot_id)
-        if selected_robot_id:
-            rec = self._find_robot(selected_robot_id)
-            if rec is not None:
-                self._render_grid_for(rec)
-
-    def _on_sync_finished(self):
-        self._sync_worker = None
-        self._sync_thread = None
-
-    def _on_robot_selected(self):
+    def _selected_robot_id(self) -> str | None:
         sel = self.tbl_robots.selectionModel().selectedRows()
         if not sel:
-            return
-        rid = self.tbl_robots.item(sel[0].row(), 0)
-        if rid is None:
-            return
-        self._current_robot_id = str(rid.text())
-        rec = self._find_robot(str(rid.text()))
-        if rec is not None:
-            self._render_grid_for(rec)
+            return None
+        r = sel[0].row()
+        item = self.tbl_robots.item(r, 0)
+        if item is None:
+            return None
+        return str(item.text())
 
     def _find_robot(self, robot_id: str) -> dict | None:
         for rec in self._robots:
@@ -366,97 +258,110 @@ class RobotsTab(QtWidgets.QWidget):
                 return rec
         return None
 
-    def _selected_robot_id(self) -> str | None:
-        sel = self.tbl_robots.selectionModel().selectedRows()
-        if sel:
-            rid_item = self.tbl_robots.item(sel[0].row(), 0)
-            if rid_item is not None:
-                rid = str(rid_item.text() or "").strip()
-                if rid:
-                    self._current_robot_id = rid
-                    return rid
-        return self._current_robot_id
-
-    def _set_selected_robot_status(self, status: str):
-        sel = self.tbl_robots.selectionModel().selectedRows()
-        if not sel:
-            self.lbl_status.setText("Выбери робота в таблице")
+    def _on_robot_selected(self):
+        robot_id = self._selected_robot_id()
+        if not robot_id:
             return
-        rid_item = self.tbl_robots.item(sel[0].row(), 0)
-        if rid_item is None:
-            return
-        rec = self._find_robot(str(rid_item.text()))
+        rec = self._find_robot(robot_id)
         if rec is None:
             return
-        rec["status"] = status
+        self._current_robot_id = robot_id
+        self._render_grid_for(rec)
+
+    def _on_robot_table_clicked(self, row: int, column: int):
+        if column != 7:
+            return
+        item = self.tbl_robots.item(row, 0)
+        if item is None:
+            return
+        robot_id = str(item.text())
+        self._robots = [r for r in self._robots if str(r.get("robot_id", "")) != robot_id]
         save_robots(self._robots)
-        self._render_robots_table(select_robot_id=str(rec.get("robot_id", "")))
-        self.lbl_status.setText(f"Робот: {status}")
-        self._schedule_sync()
+        self._render_robots_table()
+        self.lbl_status.setText(f"Робот {robot_id[:8]}... удалён")
+
+    def _render_robots_table(self):
+        self.tbl_robots.setRowCount(0)
+        self.tbl_robots.setSortingEnabled(False)
+        for rec in self._robots:
+            r = self.tbl_robots.rowCount()
+            self.tbl_robots.insertRow(r)
+            self.tbl_robots.setItem(r, 0, QtWidgets.QTableWidgetItem(str(rec.get("robot_id", "")[:8])))
+            self.tbl_robots.setItem(r, 1, QtWidgets.QTableWidgetItem(str(rec.get("robot_type", ""))))
+            ticker = str(rec.get("instrument_ticker", ""))
+            self.tbl_robots.setItem(r, 2, QtWidgets.QTableWidgetItem(ticker))
+            price = float(rec.get("current_price", 0.0) or 0.0)
+            self.tbl_robots.setItem(r, 3, QtWidgets.QTableWidgetItem(f"{price:.6f}" if price else "-"))
+            self.tbl_robots.setItem(r, 4, QtWidgets.QTableWidgetItem(str(rec.get("status", ""))))
+            created = str(rec.get("created_at", ""))
+            if created:
+                try:
+                    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    created = dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
+            self.tbl_robots.setItem(r, 5, QtWidgets.QTableWidgetItem(created))
+            deals = rec.get("deals_by_level", {}) or {}
+            total_b = sum(x.get("b", 0) for x in deals.values())
+            total_s = sum(x.get("s", 0) for x in deals.values())
+            self.tbl_robots.setItem(r, 6, QtWidgets.QTableWidgetItem(f"{total_b} | {total_s}"))
+            del_item = QtWidgets.QTableWidgetItem("❌")
+            del_item.setFlags(del_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            self.tbl_robots.setItem(r, 7, del_item)
+        self.tbl_robots.setSortingEnabled(True)
+
+    def _update_robot_row_price(self, robot_id: str, price: float):
+        for r in range(self.tbl_robots.rowCount()):
+            item = self.tbl_robots.item(r, 0)
+            if item and str(item.text()) == robot_id[:8]:
+                self.tbl_robots.setItem(r, 3, QtWidgets.QTableWidgetItem(f"{price:.6f}"))
+                break
 
     def _render_grid_for(self, rec: dict):
-        # Берем актуальную цену из общего потока котировок в момент перерисовки сетки.
-        info = InstrumentInfo(
-            kind=str(rec.get("instrument_kind", "") or ""),
-            instrument_id=str(rec.get("instrument_figi", "") or ""),
-            ticker=str(rec.get("instrument_ticker", "") or ""),
-            name=str(rec.get("instrument_name", "") or ""),
-            isin=str(rec.get("instrument_isin", "") or ""),
-            figi=str(rec.get("instrument_figi", "") or ""),
-            uid="",
-        )
-        live_price = self.quotes_hub.get_price(info)
-        if live_price is not None:
-            rec["current_price"] = float(live_price)
-
         rows = build_grid_view_rows(
-            levels=[float(x) for x in (rec.get("grid_levels", []) or [])],
+            levels=rec.get("grid_levels", []),
             last_trade_price=float(rec.get("last_trade_price", 0.0) or 0.0),
             current_price=float(rec.get("current_price", 0.0) or 0.0),
         )
-        tick = float(rec.get("tick_size", 0.0) or 0.0)
+        deals_by_level = rec.get("deals_by_level", {}) or {}
+        active_orders = rec.get("active_orders", []) or []
 
         self.tbl_grid.setRowCount(0)
         for row in rows:
             r = self.tbl_grid.rowCount()
             self.tbl_grid.insertRow(r)
-            marker_text_raw = str(row.get("marker", "") or "")
-            marker_text = marker_text_raw
-            if marker_text_raw:
-                try:
-                    marker_text = _fmt_price(float(marker_text_raw), tick)
-                except Exception:
-                    marker_text = marker_text_raw
-            marker_item = QtWidgets.QTableWidgetItem(marker_text)
-            price = float(row.get("price", 0.0) or 0.0)
-            price_item = QtWidgets.QTableWidgetItem(_fmt_price(price, tick))
+            marker = str(row.get("marker", "") or "")
+            self.tbl_grid.setItem(r, 0, QtWidgets.QTableWidgetItem(marker))
+            price = float(row.get("price", 0.0))
+            tick = fetch_min_price_increment(TOKEN, figi=rec.get("instrument_figi", "")) or 0.0
+            self.tbl_grid.setItem(r, 1, QtWidgets.QTableWidgetItem(_fmt_price(price, tick)))
+            orders_at_level = [ao for ao in active_orders if _price_key(float(ao.get("level_price", 0.0))) == _price_key(price)]
+            self.tbl_grid.setItem(r, 2, QtWidgets.QTableWidgetItem(str(len(orders_at_level))))
+            key = _price_key(price)
+            d = deals_by_level.get(key, {"b": 0, "s": 0})
+            self.tbl_grid.setItem(r, 3, QtWidgets.QTableWidgetItem(f"{d.get('b', 0)} | {d.get('s', 0)}"))
 
-            level_key = _price_key(price)
-            deals = rec.get("deals_by_level", {}).get(level_key, {"b": 0, "s": 0})
-            deals_text = f"{int(deals.get('b', 0) or 0)} | {int(deals.get('s', 0) or 0)}"
+    def _schedule_sync(self):
+        if self._sync_thread is not None and self._sync_thread.isRunning():
+            return
+        if not self._account_id:
+            return
+        self._sync_thread = QtCore.QThread(self)
+        self._sync_worker = _RobotsSyncWorker(TOKEN, self._account_id, self._robots)
+        self._sync_worker.moveToThread(self._sync_thread)
+        self._sync_thread.started.connect(self._sync_worker.run)
+        self._sync_worker.loaded.connect(self._on_sync_loaded)
+        self._sync_worker.finished.connect(self._sync_thread.quit)
+        self._sync_worker.finished.connect(self._sync_worker.deleteLater)
+        self._sync_thread.finished.connect(self._sync_thread.deleteLater)
+        self._sync_thread.start()
 
-            tokens: list[str] = []
-            for ao in rec.get("active_orders", []) or []:
-                if _price_key(float(ao.get("level_price", 0.0) or 0.0)) != level_key:
-                    continue
-                side = str(ao.get("side", "")).upper()
-                oid = str(ao.get("order_id", "") or "")
-                short = oid[:6] if oid else ""
-                if side == "BUY":
-                    tokens.append(f"B#{short}")
-                elif side == "SELL":
-                    tokens.append(f"S#{short}")
-
-            orders_item = QtWidgets.QTableWidgetItem(" ".join(tokens))
-            deals_item = QtWidgets.QTableWidgetItem(deals_text)
-
-            color = row.get("marker_color")
-            if color == "up":
-                marker_item.setBackground(QtCore.Qt.GlobalColor.green)
-            elif color == "down":
-                marker_item.setBackground(QtCore.Qt.GlobalColor.red)
-
-            self.tbl_grid.setItem(r, 0, marker_item)
-            self.tbl_grid.setItem(r, 1, price_item)
-            self.tbl_grid.setItem(r, 2, orders_item)
-            self.tbl_grid.setItem(r, 3, deals_item)
+    def _on_sync_loaded(self, robots: list[dict]):
+        self._robots = robots
+        save_robots(self._robots)
+        self._render_robots_table()
+        robot_id = self._selected_robot_id()
+        if robot_id:
+            rec = self._find_robot(robot_id)
+            if rec is not None:
+                self._render_grid_for(rec)

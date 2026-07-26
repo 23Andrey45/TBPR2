@@ -12,10 +12,8 @@ from typing import Optional, Any
 from PyQt6 import QtCore, QtWidgets
 
 from app.config import TOKEN, REAL_TOKEN
-# TODO: Добавить после загрузки db/
-# from db import Fill, FillRepository, Order, OrderRepository
 from app.workers import SandboxHistoryLoader
-from trading.trading_context import TradingContext
+from app.app_context import AppContext
 
 
 def _log(msg: str):
@@ -55,10 +53,10 @@ class OrderRepository:
 class HistoryTab(QtWidgets.QWidget):
     """Вкладка истории сделок."""
 
-    def __init__(self, trading_context: TradingContext = None, parent=None):
+    def __init__(self, app_context: AppContext = None, parent=None):
         super().__init__(parent)
 
-        self.trading_context = trading_context
+        self.app_context = app_context
         self._account_id = ""
         self._is_real_account = False  # Переключатель: False=песочница, True=реальный
         self._load_thread: Optional[QtCore.QThread] = None
@@ -176,9 +174,9 @@ class HistoryTab(QtWidgets.QWidget):
         self.cb_filter_type.currentIndexChanged.connect(self.refresh)
 
         # ✅ Обновление account_id при изменении
-        if self.trading_context:
-            self.trading_context.account_changed.connect(self._on_account_changed)
-            self._account_id = self.trading_context.account_id
+        if self.app_context:
+            self.app_context.account_changed.connect(self._on_account_changed)
+            self._account_id = self.app_context.account_id
 
         # ✅ Автообновление при открытии
         self._refresh_timer = QtCore.QTimer(self)
@@ -224,129 +222,152 @@ class HistoryTab(QtWidgets.QWidget):
             "За 30 дней": 30,
             "За 90 дней": 90,
         }
-        return mapping.get(period_text, 30)
+        return mapping.get(period_text, 3)
 
     def refresh(self):
-        """Обновить отображение данных из БД."""
+        """Обновить данные."""
         if not self._account_id:
-            self.lbl_status.setText("❌ Нет account_id")
+            self.lbl_status.setText("Нет account_id")
             return
 
         days = self._get_days_for_period(self.cb_filter_period.currentText())
         filter_type = self.cb_filter_type.currentText()
 
-        _log(f"Refreshing: account={self._account_id}, days={days}, type={filter_type}, real={self._is_real_account}")
-
-        # Получаем данные из БД
-        fills = FillRepository.get_all(self._account_id, days)
-        orders = OrderRepository.get_all(self._account_id)
-
-        # Применяем фильтры
-        if filter_type == "Покупки":
-            fills = [f for f in fills if f.side.lower() == "buy"]
-        elif filter_type == "Продажи":
-            fills = [f for f in fills if f.side.lower() == "sell"]
-
-        # Обновляем таблицы
-        self._render_fills_table(fills)
-        self._render_orders_table(orders)
-
-        self.lbl_total.setText(f"Всего: {len(fills)} сделок, {len(orders)} ордеров")
-        self.lbl_status.setText(f"✅ Обновлено: {datetime.now().strftime('%H:%M:%S')}")
-
-    def _render_fills_table(self, fills: list):
-        """Отрисовка таблицы сделок."""
-        self.tbl_fills.setRowCount(0)
-        for f in fills:
-            r = self.tbl_fills.rowCount()
-            self.tbl_fills.insertRow(r)
-            self.tbl_fills.setItem(r, 0, QtWidgets.QTableWidgetItem(self._format_time(f.time if hasattr(f, 'time') else f.get('time', ''))))
-            self.tbl_fills.setItem(r, 1, QtWidgets.QTableWidgetItem(f.ticker if hasattr(f, 'ticker') else f.get('ticker', '')))
-            self.tbl_fills.setItem(r, 2, QtWidgets.QTableWidgetItem(f.figi if hasattr(f, 'figi') else f.get('figi', '')))
-            self.tbl_fills.setItem(r, 3, QtWidgets.QTableWidgetItem(f.side if hasattr(f, 'side') else f.get('side', '')))
-            self.tbl_fills.setItem(r, 4, QtWidgets.QTableWidgetItem(str(f.lots if hasattr(f, 'lots') else f.get('lots', ''))))
-            self.tbl_fills.setItem(r, 5, QtWidgets.QTableWidgetItem(str(f.price if hasattr(f, 'price') else f.get('price', ''))))
-            self.tbl_fills.setItem(r, 6, QtWidgets.QTableWidgetItem(str(f.sum if hasattr(f, 'sum') else f.get('sum', ''))))
-            self.tbl_fills.setItem(r, 7, QtWidgets.QTableWidgetItem(f.status if hasattr(f, 'status') else f.get('status', '')))
-            self.tbl_fills.setItem(r, 8, QtWidgets.QTableWidgetItem(f.order_id if hasattr(f, 'order_id') else f.get('order_id', '')))
-            self.tbl_fills.setItem(r, 9, QtWidgets.QTableWidgetItem(f.source if hasattr(f, 'source') else f.get('source', '')))
-
-    def _render_orders_table(self, orders: list):
-        """Отрисовка таблицы ордеров."""
-        self.tbl_orders.setRowCount(0)
-        for o in orders:
-            r = self.tbl_orders.rowCount()
-            self.tbl_orders.insertRow(r)
-            self.tbl_orders.setItem(r, 0, QtWidgets.QTableWidgetItem(self._format_time(o.created_at if hasattr(o, 'created_at') else o.get('created_at', ''))))
-            self.tbl_orders.setItem(r, 1, QtWidgets.QTableWidgetItem(o.ticker if hasattr(o, 'ticker') else o.get('ticker', '')))
-            self.tbl_orders.setItem(r, 2, QtWidgets.QTableWidgetItem(o.figi if hasattr(o, 'figi') else o.get('figi', '')))
-            self.tbl_orders.setItem(r, 3, QtWidgets.QTableWidgetItem(o.side if hasattr(o, 'side') else o.get('side', '')))
-            self.tbl_orders.setItem(r, 4, QtWidgets.QTableWidgetItem(o.order_type if hasattr(o, 'order_type') else o.get('order_type', '')))
-            self.tbl_orders.setItem(r, 5, QtWidgets.QTableWidgetItem(str(o.lots_requested if hasattr(o, 'lots_requested') else o.get('lots_requested', ''))))
-            self.tbl_orders.setItem(r, 6, QtWidgets.QTableWidgetItem(str(o.lots_executed if hasattr(o, 'lots_executed') else o.get('lots_executed', ''))))
-            self.tbl_orders.setItem(r, 7, QtWidgets.QTableWidgetItem(str(o.price if hasattr(o, 'price') else o.get('price', ''))))
-            self.tbl_orders.setItem(r, 8, QtWidgets.QTableWidgetItem(o.status if hasattr(o, 'status') else o.get('status', '')))
-            self.tbl_orders.setItem(r, 9, QtWidgets.QTableWidgetItem(o.order_id if hasattr(o, 'order_id') else o.get('order_id', '')))
-            self.tbl_orders.setItem(r, 10, QtWidgets.QTableWidgetItem(o.message if hasattr(o, 'message') else o.get('message', '')))
-
-    def _format_time(self, value: Any) -> str:
-        """Форматирование времени."""
-        if not value:
-            return ""
-        try:
-            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return str(value)
-
-    def _start_load_history(self):
-        """Загрузка истории с сервера."""
-        if not self._account_id:
-            self.lbl_status.setText("❌ Нет account_id")
-            return
-
+        self.lbl_status.setText(f"Загрузка истории ({days} дн.)...")
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Загрузка истории с сервера...")
 
-        token = self._get_token()
+        # Загрузка из БД
+        self._load_from_db(days, filter_type)
+
+    def _load_from_db(self, days: int, filter_type: str):
+        """Загрузить данные из базы данных."""
+        try:
+            fills = FillRepository.get_all(self._account_id, days)
+            orders = OrderRepository.get_all(self._account_id, days)
+
+            self._render_fills(fills, filter_type)
+            self._render_orders(orders)
+
+            self.lbl_total.setText(f"Всего: {len(fills) + len(orders)}")
+            self.lbl_status.setText(f"Загружено из БД: {len(fills)} сделок, {len(orders)} ордеров")
+            self.progress_bar.setValue(100)
+
+        except Exception as e:
+            import traceback
+            self.lbl_status.setText(f"Ошибка: {e}")
+            self.progress_bar.setVisible(False)
+            traceback.print_exc()
+
+    def _start_load_history(self):
+        """Загрузить историю с сервера."""
+        if not self._account_id:
+            self.lbl_status.setText("Нет account_id")
+            return
+
         days = self._get_days_for_period(self.cb_filter_period.currentText())
+        token = self._get_token()
 
+        self.lbl_status.setText(f"Загрузка истории с сервера ({days} дн.)...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        # Создаём воркер
         self._load_thread = QtCore.QThread(self)
         self._load_worker = SandboxHistoryLoader(token, self._account_id, days)
         self._load_worker.moveToThread(self._load_thread)
 
+        # Подключения
         self._load_thread.started.connect(self._load_worker.run)
         self._load_worker.loaded.connect(self._on_history_loaded)
         self._load_worker.progress.connect(self.progress_bar.setValue)
         self._load_worker.error.connect(self._on_history_error)
+
         self._load_worker.finished.connect(self._load_thread.quit)
         self._load_worker.finished.connect(self._load_worker.deleteLater)
         self._load_thread.finished.connect(self._load_thread.deleteLater)
-        self._load_thread.finished.connect(self._cleanup_loader)
 
         self._load_thread.start()
 
-    def _on_history_loaded(self, data: dict):
+    def _on_history_loaded(self, result: dict):
         """Обработка загруженных данных."""
+        fills = result.get("fills", [])
+        orders = result.get("orders", [])
+
+        self._render_fills(fills, "Все сделки")
+        self._render_orders(orders)
+
+        self.lbl_total.setText(f"Всего: {len(fills) + len(orders)}")
+        self.lbl_status.setText(f"Загружено с сервера: {len(fills)} сделок, {len(orders)} ордеров")
         self.progress_bar.setVisible(False)
-        fills = data.get("fills", [])
-        orders = data.get("orders", [])
-        count = data.get("count", 0)
 
-        self.lbl_status.setText(f"✅ Загружено: {count} записей")
-        self.lbl_total.setText(f"Всего: {len(fills)} сделок, {len(orders)} ордеров")
-
-        # TODO: Сохранить в БД после загрузки db/
-        _log(f"Loaded {len(fills)} fills, {len(orders)} orders")
+        # Сохраняем в БД
+        self._save_to_db(fills, orders)
 
     def _on_history_error(self, error: str):
-        """Обработка ошибки загрузки."""
+        """Обработка ошибки."""
+        self.lbl_status.setText(f"Ошибка загрузки: {error[:100]}")
         self.progress_bar.setVisible(False)
-        self.lbl_status.setText(f"❌ Ошибка: {error}")
-        _log(f"Error loading history: {error}")
+        print(f"[HistoryTab] ERROR: {error}")
 
-    def _cleanup_loader(self):
-        """Очистка воркера."""
-        self._load_thread = None
-        self._load_worker = None
+    def _render_fills(self, fills: list, filter_type: str):
+        """Отобразить сделки."""
+        self.tbl_fills.setRowCount(0)
+
+        for f in fills:
+            # Фильтр по типу
+            if filter_type == "Покупки" and f.get("side", "").upper() != "BUY":
+                continue
+            if filter_type == "Продажи" and f.get("side", "").upper() != "SELL":
+                continue
+
+            r = self.tbl_fills.rowCount()
+            self.tbl_fills.insertRow(r)
+
+            self.tbl_fills.setItem(r, 0, QtWidgets.QTableWidgetItem(str(f.get("time", ""))))
+            self.tbl_fills.setItem(r, 1, QtWidgets.QTableWidgetItem(f.get("ticker", "")))
+            self.tbl_fills.setItem(r, 2, QtWidgets.QTableWidgetItem(f.get("figi", "")))
+            self.tbl_fills.setItem(r, 3, QtWidgets.QTableWidgetItem(f.get("side", "")))
+            self.tbl_fills.setItem(r, 4, QtWidgets.QTableWidgetItem(str(f.get("lots", ""))))
+            self.tbl_fills.setItem(r, 5, QtWidgets.QTableWidgetItem(f.get("price", "")))
+
+            # Sum = lots * price
+            try:
+                lots = float(f.get("lots", 0) or 0)
+                price = float(f.get("price", 0) or 0)
+                total = lots * price
+            except (ValueError, TypeError):
+                total = 0
+            self.tbl_fills.setItem(r, 6, QtWidgets.QTableWidgetItem(f"{total:.2f}"))
+
+            self.tbl_fills.setItem(r, 7, QtWidgets.QTableWidgetItem(f.get("status", "")))
+            self.tbl_fills.setItem(r, 8, QtWidgets.QTableWidgetItem(f.get("order_id", "")))
+            self.tbl_fills.setItem(r, 9, QtWidgets.QTableWidgetItem(f.get("source", "")))
+
+    def _render_orders(self, orders: list):
+        """Отобразить ордера."""
+        self.tbl_orders.setRowCount(0)
+
+        for o in orders:
+            r = self.tbl_orders.rowCount()
+            self.tbl_orders.insertRow(r)
+
+            self.tbl_orders.setItem(r, 0, QtWidgets.QTableWidgetItem(str(o.get("time", ""))))
+            self.tbl_orders.setItem(r, 1, QtWidgets.QTableWidgetItem(o.get("ticker", "")))
+            self.tbl_orders.setItem(r, 2, QtWidgets.QTableWidgetItem(o.get("figi", "")))
+            self.tbl_orders.setItem(r, 3, QtWidgets.QTableWidgetItem(o.get("side", "")))
+            self.tbl_orders.setItem(r, 4, QtWidgets.QTableWidgetItem(o.get("order_type", "")))
+            self.tbl_orders.setItem(r, 5, QtWidgets.QTableWidgetItem(str(o.get("lots_requested", ""))))
+            self.tbl_orders.setItem(r, 6, QtWidgets.QTableWidgetItem(str(o.get("lots_executed", ""))))
+            self.tbl_orders.setItem(r, 7, QtWidgets.QTableWidgetItem(o.get("price", "")))
+            self.tbl_orders.setItem(r, 8, QtWidgets.QTableWidgetItem(o.get("status", "")))
+            self.tbl_orders.setItem(r, 9, QtWidgets.QTableWidgetItem(o.get("order_id", "")))
+            self.tbl_orders.setItem(r, 10, QtWidgets.QTableWidgetItem(o.get("message", "")))
+
+    def _save_to_db(self, fills: list, orders: list):
+        """Сохранить данные в базу данных."""
+        try:
+            # TODO: Реализовать после загрузки db/
+            print(f"[HistoryTab] Saving {len(fills)} fills and {len(orders)} orders to DB (not implemented)")
+        except Exception as e:
+            print(f"[HistoryTab] Error saving to DB: {e}")

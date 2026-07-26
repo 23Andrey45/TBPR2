@@ -1,6 +1,7 @@
 # sandbox_trading/tab_sandbox_trading.py
 """
 Вкладка "Торговля" - торговля в песочнице.
+Использует AppContext для обмена данными между вкладками.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from PyQt6 import QtCore, QtWidgets
 
 import traceback
 
-# ✅ ЛОГИРОВАНИЕ для отладки - ВЫВОД В КОНСОЛЬ
+# ✅ ЛОГИРОВАНИЕ для отладки
 _DEBUG_LOG = []
 
 
@@ -50,6 +51,7 @@ def _global_exception_handler(exc_type, exc_value, exc_traceback):
 sys.excepthook = _global_exception_handler
 
 from app.config import TOKEN, DATA_DIR, DB_FILE
+from app.app_context import AppContext
 from core.instruments_catalog import InstrumentInfo
 
 # ✅ Импортируем ОБЩИЕ воркеры
@@ -66,7 +68,7 @@ from account.account_workers import (
     SandboxMoneyBalanceLoader,
 )
 
-# Импортируем базу данных - объявляем переменные ДО импорта
+# Импортируем базу данных
 DB_ENABLED = False
 init_db = None
 Order = None
@@ -95,11 +97,12 @@ import sys
 
 sys.stdout.flush()
 from market_data.quotes_hub import QuotesHub
-from trading.trading_context import TradingContext
 from instruments.instruments_controller import InstrumentsController
 from sandbox_trading.sandbox_favorites_picker import FavoritesOnlyPicker
 
 from core.sandbox_orders_api import PlaceOrderAttempt, ActiveOrder
+from core.utils import ui_order_status, parse_datetime
+from core.instruments_utils import get_ticker_by_figi, build_figi_index
 
 
 def kind_to_short(kind: str) -> str:
@@ -128,18 +131,18 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self,
             instruments_controller: InstrumentsController,
             quotes_hub: QuotesHub,
-            trading_context: TradingContext,
+            app_context: AppContext,
             parent=None,
     ):
         super().__init__(parent)
 
         self.instr_controller = instruments_controller
         self.quotes_hub = quotes_hub
-        self.trading_context = trading_context
+        self.app_context = app_context
         self.picker = FavoritesOnlyPicker(
             controller=self.instr_controller,
             quotes_hub=self.quotes_hub,
-            trading_context=self.trading_context,
+            app_context=self.app_context,
             parent=self,
         )
 
@@ -336,7 +339,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 _log("Database initialized")
             except Exception as e:
                 _log(f"Database init ERROR: {e}")
-                # Не меняем глобальный DB_ENABLED
 
         _log("=" * 50)
         _log("SandboxTradingTab INITIALIZED")
@@ -349,8 +351,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
     def stop(self):
         self._poll_timer.stop()
         self._qty_timer.stop()
-
-        # Закрываем базу данных
         if DB_ENABLED:
             try:
                 from db import close_db
@@ -380,10 +380,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
         super().hideEvent(event)
 
     def _reindex_figi(self, *_):
-        self._by_figi = {}
-        for info in self.instr_controller.favorites():
-            if info.figi:
-                self._by_figi[info.figi] = info
+        self._by_figi = build_figi_index(self.instr_controller.favorites())
 
     def _refresh_quantities_only(self):
         if not self.isVisible() or self._updating:
@@ -420,7 +417,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
         thread.started.connect(worker.run)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda t=thread: self._cleanup_job(t))
-        # ✅ Исправление: используем timerId для проверки существования
         timeout_timer = QtCore.QTimer(self)
         timeout_timer.setSingleShot(True)
         timeout_timer.timeout.connect(lambda: self._force_cleanup_worker_safe(thread, worker, timeout_timer))
@@ -430,7 +426,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
         _log(f"Started worker: {worker.__class__.__name__}, total jobs: {len(self._jobs)}")
 
     def _force_cleanup_worker_safe(self, thread: QtCore.QThread, worker: QtCore.QObject, timer: QtCore.QTimer):
-        """✅ Безопасная очистка — проверяем существование объектов."""
         timer.deleteLater()
         try:
             if thread.isRunning():
@@ -439,18 +434,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 thread.wait(1000)
             self._cleanup_job(thread)
         except RuntimeError:
-            pass  # Объект уже удалён
-
-    def _force_cleanup_worker(self, thread: QtCore.QThread, worker: QtCore.QObject):
-        """✅ Старый метод для совместимости."""
-        try:
-            if thread.isRunning():
-                _log(f"Force cleanup worker: {worker.__class__.__name__}")
-                thread.quit()
-                thread.wait(1000)
-            self._cleanup_job(thread)
-        except RuntimeError:
-            pass  # Объект уже удалён
+            pass
 
     def _cleanup_job(self, thread: QtCore.QThread):
         old_count = len(self._jobs)
@@ -508,7 +492,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self.cb_accounts.addItem(str(acc_id), str(acc_id))
         if accounts:
             self._account_id = str(self.cb_accounts.itemData(0))
-            self.trading_context.set_account_id(self._account_id)
+            self.app_context.sandbox_account_id = self._account_id
             self.lbl_status.setText(f"Аккаунтов: {len(accounts)}")
             self.refresh_balance()
             self.request_status_refresh()
@@ -520,7 +504,7 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
     def _on_account_changed(self):
         self._account_id = str(self.cb_accounts.currentData() or "")
-        self.trading_context.set_account_id(self._account_id)
+        self.app_context.sandbox_account_id = self._account_id
         self.refresh_balance()
         self.request_status_refresh()
 
@@ -572,12 +556,9 @@ class SandboxTradingTab(QtWidgets.QWidget):
 
     def refresh_statuses(self):
         _log("refresh_statuses START")
-
-        # ✅ ПРОВЕРКА: Предыдущие загрузки ещё не завершены?
         if self._active_loading or self._deals_loading or self._order_state_loading:
             _log("refresh_statuses SKIP: previous loads still in progress")
             return
-
         if not self.isVisible():
             _log("refresh_statuses SKIP: not visible")
             return
@@ -602,20 +583,14 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._updating = False
 
     def _try_finish_status_cycle(self):
-        _log(
-            f"_try_finish_status_cycle: active={self._active_loading}, deals={self._deals_loading}, states={self._order_state_loading}")
-
-        # ✅ ПРОВЕРКА: Все ли загрузки завершены?
+        _log(f"_try_finish_status_cycle: active={self._active_loading}, deals={self._deals_loading}, states={self._order_state_loading}")
         still_loading = self._active_loading or self._deals_loading or self._order_state_loading
         if still_loading:
             _log("_try_finish_status_cycle: SKIP - still loading")
             return
-
-        # ✅ Загрузки завершены - блокируем и планируем рендер
         if not self._status_lock.tryLock(0):
             _log("_try_finish_status_cycle: lock busy")
             return
-
         try:
             if self._status_cycle_pending:
                 _log("_try_finish_status_cycle: pending - restarting cycle")
@@ -626,7 +601,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 if self._status_cycle_running:
                     _log("_try_finish_status_cycle: FINISHED - scheduling render")
                     self._status_cycle_running = False
-                # ✅ ВСЕГДА планируем рендер когда загрузки завершены
                 QtCore.QTimer.singleShot(100, self._request_render)
         finally:
             self._status_lock.unlock()
@@ -658,8 +632,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._try_finish_status_cycle()
         _log("_on_recent_deals_loaded: scheduling picker.refresh_quantities")
         QtCore.QTimer.singleShot(500, self.picker.refresh_quantities)
-        # ✅ УБРАЛИ _request_render - он вызывается в _try_finish_status_cycle
-        _log("_on_recent_deals_loaded: DONE")
 
     def poll_active_orders(self):
         if not self.isVisible():
@@ -747,7 +719,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._save_orders_cache()
 
     def _load_orders_cache(self) -> list[dict[str, Any]]:
-        """Загрузить ордера из базы данных или JSON."""
         if DB_ENABLED and OrderRepository is not None:
             try:
                 orders = OrderRepository.get_all(self._account_id)
@@ -756,8 +727,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 return result
             except Exception as e:
                 _log(f"DB load orders ERROR: {e}")
-
-        # Fallback to JSON
         path = Path(self.ORDERS_CACHE_FILE)
         if not path.exists():
             return []
@@ -769,10 +738,8 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return []
 
     def _save_orders_cache(self):
-        """Сохранить ордера в базу данных и JSON."""
         if DB_ENABLED and OrderRepository is not None:
             try:
-                # Сохраняем последний ордер в БД
                 if self._orders_cache:
                     last_order = self._orders_cache[-1]
                     order = Order.from_dict(last_order)
@@ -780,15 +747,12 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 _log("Saved order to DB")
             except Exception as e:
                 _log(f"DB save order ERROR: {e}")
-
-        # Fallback to JSON
         path = Path(self.ORDERS_CACHE_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"orders": self._orders_cache}
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _load_fills_cache(self) -> list[dict[str, Any]]:
-        """Загрузить исполнения из базы данных или JSON."""
         if DB_ENABLED and FillRepository is not None:
             try:
                 fills = FillRepository.get_all(self._account_id, days=3)
@@ -797,8 +761,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 return result
             except Exception as e:
                 _log(f"DB load fills ERROR: {e}")
-
-        # Fallback to JSON
         path = Path(self.FILLS_CACHE_FILE)
         if not path.exists():
             return []
@@ -810,7 +772,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
             return []
 
     def _save_fills_cache(self):
-        """Сохранить исполнения в базу данных и JSON."""
         if DB_ENABLED and FillRepository is not None:
             try:
                 fills = [Fill.from_dict(f) for f in self._fills_cache if isinstance(f, dict)]
@@ -818,32 +779,14 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 _log(f"Saved {len(fills)} fills to DB")
             except Exception as e:
                 _log(f"DB save fills ERROR: {e}")
-
-        # Fallback to JSON
         path = Path(self.FILLS_CACHE_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"fills": self._fills_cache}
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _ui_status(self, server_status: str, on_server: bool, lots_req: int = 0, lots_exec: int = 0) -> str:
-        if not on_server:
-            return "Не активна"
-        s = (server_status or "").upper().replace("EXECUTION_REPORT_STATUS_", "")
-        numeric_map = {"0": "Не активна", "1": "Исполнена", "2": "Отклонена", "3": "Отменена", "4": "Активна",
-                       "5": "Частично исполнена", "6": "Активна"}
-        if s in numeric_map:
-            return numeric_map[s]
-        if "PARTIALLY" in s:
-            return "Частично исполнена"
-        if "FILL" in s:
-            return "Исполнена"
-        if "CANCEL" in s:
-            return "Отменена"
-        if "REJECT" in s:
-            return "Отклонена"
-        if "NEW" in s or "ACTIVE" in s:
-            return "Активна"
-        return str(server_status) if str(server_status).strip() else "Активна"
+        """Получить человекочитаемый статус ордера."""
+        return ui_order_status(server_status, on_server, lots_req, lots_exec)
 
     def _sync_orders_with_server(self):
         _log(f"_sync_orders_with_server: {len(self._orders_cache)} orders in cache")
@@ -1020,12 +963,8 @@ class SandboxTradingTab(QtWidgets.QWidget):
         return out
 
     def _parse_dt(self, value: Any) -> Optional[datetime]:
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except Exception:
-            return None
+        """Распарсить datetime."""
+        return parse_datetime(value)
 
     def _render_tables(self):
         self._render_scheduled = False
@@ -1128,45 +1067,32 @@ class SandboxTradingTab(QtWidgets.QWidget):
         self._remove_local_order(local_id)
 
     def _delete_server_order(self, order_id: str):
-        """✅ Удаление ордера с сервера."""
         if not order_id or not self._account_id:
             _log(f"_delete_server_order: SKIP - no order_id or account_id")
             return
-
         _log(f"_delete_server_order: cancelling {order_id}")
         self.lbl_status.setText(f"Отмена ордера {order_id[:8]}...")
-
         worker = CancelSandboxOrderWorker(TOKEN, self._account_id, order_id)
         self._run_worker(worker, lambda *_: self._on_server_order_cancelled(order_id))
 
     def _on_server_order_cancelled(self, order_id: str):
-        """✅ Обработка успешной отмены ордера."""
         _log(f"_on_server_order_cancelled: {order_id}")
         self.lbl_status.setText(f"Ордер {order_id[:8]} отменён")
-
-        # ✅ Удаляем из локального кэша
         self._orders_cache = [x for x in self._orders_cache if str(x.get("order_id", "")) != order_id]
         self._save_orders_cache()
-
-        # ✅ Удаляем из серверного словаря
         if order_id in self._server_active_by_id:
             del self._server_active_by_id[order_id]
-
-        # ✅ Перерисовываем обе таблицы
         self._request_render()
         self._render_server_orders_table()
 
     def _remove_local_order(self, local_id: str):
         self._orders_cache = [x for x in self._orders_cache if str(x.get("local_id", "")) != local_id]
-
-        # Удаляем из БД
         if DB_ENABLED and OrderRepository is not None:
             try:
                 OrderRepository.delete_by_local_id(local_id)
                 _log(f"Deleted order {local_id} from DB")
             except Exception as e:
                 _log(f"DB delete ERROR: {e}")
-
         self._save_orders_cache()
         self._request_render()
 
@@ -1181,10 +1107,9 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._delete_order(local_id)
 
     def _on_server_order_cell_clicked(self, row: int, column: int):
-        """✅ Обработка клика по кнопке 'Удалить' во второй таблице."""
         if column != 8:
             return
-        item = self.tbl_server_orders.item(row, 0)  # order_id в первой колонке
+        item = self.tbl_server_orders.item(row, 0)
         if item is None:
             return
         order_id = str(item.text())
@@ -1193,17 +1118,13 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self._delete_server_order(order_id)
 
     def _refresh_server_orders_manual(self):
-        """✅ Ручное обновление серверных ордеров по кнопке."""
         _log("_refresh_server_orders_manual: START")
         self.lbl_server_orders_count.setText("Загрузка...")
         self.poll_active_orders()
 
     def _render_server_orders_table(self):
-        """✅ Отрисовка таблицы серверных ордеров."""
         try:
             _log(f"_render_server_orders_table: {len(self._server_active_by_id)} orders")
-
-            # ✅ Обновляем _by_figi если пустой
             if not self._by_figi:
                 _log("_render_server_orders_table: _by_figi is empty, calling _reindex_figi")
                 self._reindex_figi()
@@ -1216,19 +1137,16 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self.tbl_server_orders.setRowCount(len(orders_list))
 
             for r, order in enumerate(orders_list):
-                # ✅ Ищем тикер: сначала в _by_figi, потом в кэше ордеров
                 ticker = ""
                 if order.figi and order.figi in self._by_figi:
                     ticker = self._by_figi[order.figi].ticker
                 else:
-                    # Ищем в кэше ордеров по FIGI
                     for rec in self._orders_cache:
                         if rec.get("figi") == order.figi:
                             ticker = rec.get("ticker", "")
                             break
-
                 if not ticker:
-                    ticker = order.figi  # Fallback к FIGI
+                    ticker = order.figi
 
                 self.tbl_server_orders.setItem(r, 0, QtWidgets.QTableWidgetItem(str(order.order_id)))
                 self.tbl_server_orders.setItem(r, 1, QtWidgets.QTableWidgetItem(ticker))
@@ -1241,7 +1159,6 @@ class SandboxTradingTab(QtWidgets.QWidget):
                 status_ui = self._ui_status(order.status, True, order.lots_requested, order.lots_executed)
                 self.tbl_server_orders.setItem(r, 7, QtWidgets.QTableWidgetItem(status_ui))
 
-                # ✅ Кнопка "Удалить"
                 del_item = QtWidgets.QTableWidgetItem("❌")
                 del_item.setToolTip("Удалить ордер")
                 del_item.setFlags(del_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
@@ -1259,20 +1176,5 @@ class SandboxTradingTab(QtWidgets.QWidget):
             self.tbl_server_orders.viewport().update()
 
     def _get_ticker_by_figi(self, figi: str) -> str:
-        """✅ Получить тикер по FIGI."""
-        _log(f"_get_ticker_by_figi: looking for {figi}, _by_figi has {len(self._by_figi)} items")
-
-        if figi in self._by_figi:
-            ticker = self._by_figi[figi].ticker
-            _log(f"_get_ticker_by_figi: found in _by_figi: {ticker}")
-            return ticker
-
-        # Ищем в кэше ордеров
-        for rec in self._orders_cache:
-            if rec.get("figi") == figi:
-                ticker = rec.get("ticker", figi)
-                _log(f"_get_ticker_by_figi: found in orders_cache: {ticker}")
-                return ticker
-
-        _log(f"_get_ticker_by_figi: NOT FOUND, returning figi: {figi}")
-        return figi
+        """Получить тикер по FIGI."""
+        return get_ticker_by_figi(figi, self._by_figi, self._orders_cache)

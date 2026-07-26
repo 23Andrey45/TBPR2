@@ -1,3 +1,4 @@
+# events/tab_events.py
 from __future__ import annotations
 
 import json
@@ -6,6 +7,7 @@ from pathlib import Path
 from PyQt6 import QtCore, QtWidgets
 
 from app.config import DATA_DIR, FAVORITES_FILE, TOKEN
+from app.app_context import AppContext
 from core.favorites_repo import load_favorites
 from events.orders_events_stream_worker import OrdersEventsStreamWorker
 from events.quotes_events_stream_worker import QuotesEventsStreamWorker
@@ -14,9 +16,9 @@ from events.quotes_events_stream_worker import QuotesEventsStreamWorker
 class EventsTab(QtWidgets.QWidget):
     SUBSCRIPTIONS_LOG_FILE = DATA_DIR / "stream_subscriptions_log.jsonl"
 
-    def __init__(self, trading_context, instruments_controller=None, parent=None):
+    def __init__(self, app_context: AppContext, instruments_controller=None, parent=None):
         super().__init__(parent)
-        self.trading_context = trading_context
+        self.app_context = app_context
         self.instruments_controller = instruments_controller
 
         self._thread: QtCore.QThread | None = None
@@ -27,7 +29,7 @@ class EventsTab(QtWidgets.QWidget):
 
         self.lbl_status = QtWidgets.QLabel("Готово к запуску stream")
 
-        self.ed_account = QtWidgets.QLineEdit(str(getattr(self.trading_context, "account_id", "") or ""))
+        self.ed_account = QtWidgets.QLineEdit(str(getattr(self.app_context, "sandbox_account_id", "") or ""))
         self.ed_account.setPlaceholderText("account_id")
 
         self.btn_start = QtWidgets.QPushButton("Старт stream")
@@ -72,8 +74,8 @@ class EventsTab(QtWidgets.QWidget):
         self.btn_stop.clicked.connect(self.stop_stream)
         self.btn_clear.clicked.connect(self.clear_events)
 
-        if hasattr(self.trading_context, "account_changed"):
-            self.trading_context.account_changed.connect(self._on_account_changed)
+        if hasattr(self.app_context, "account_changed"):
+            self.app_context.account_changed.connect(self._on_account_changed)
 
     def _on_account_changed(self, account_id: str) -> None:
         if not self.ed_account.text().strip():
@@ -153,7 +155,6 @@ class EventsTab(QtWidgets.QWidget):
         self.tbl.setItem(row, 4, QtWidgets.QTableWidgetItem(str(payload.get("payload", ""))))
         self.tbl.scrollToBottom()
 
-        # Keep table size bounded in long-running test sessions.
         if self.tbl.rowCount() > 500:
             self.tbl.removeRow(0)
 
@@ -175,104 +176,66 @@ class EventsTab(QtWidgets.QWidget):
             f"account_id={payload.get('account_id', '')}"
         )
         self.lbl_sub_info.setText(text)
-        self._append_subscription_log({"type": "subscribe", **payload})
-
-    @QtCore.pyqtSlot(object)
-    def _on_stream_closed(self, payload: dict) -> None:
-        text = (
-            f"Подписка закрыта: reason={payload.get('reason', '')}, "
-            f"close_method={payload.get('close_method', '')}, "
-            f"target={payload.get('target', '')}, method={payload.get('method', '')}"
-        )
-        self.lbl_sub_info.setText(text)
-        self._append_subscription_log({"type": "closed", **payload})
+        self._append_subscription_log({"type": "orders", "payload": payload})
 
     @QtCore.pyqtSlot(object)
     def _on_quotes_subscription_info(self, payload: dict) -> None:
         text = (
-            f"Quotes подписка: target={payload.get('target', '')}, "
-            f"method={payload.get('method', '')}, figis={payload.get('figis_count', '')}"
+            f"Quotes: figis={len(payload.get('figis', []))}, "
+            f"service={payload.get('service', '')}, "
+            f"method={payload.get('method', '')}"
         )
         self.lbl_sub_info.setText(text)
-        self._append_subscription_log({"type": "quotes_subscribe", **payload})
+        self._append_subscription_log({"type": "quotes", "payload": payload})
 
-    @QtCore.pyqtSlot(object)
-    def _on_quotes_stream_closed(self, payload: dict) -> None:
-        text = (
-            f"Quotes подписка закрыта: reason={payload.get('reason', '')}, "
-            f"target={payload.get('target', '')}"
-        )
-        self.lbl_sub_info.setText(text)
-        self._append_subscription_log({"type": "quotes_closed", **payload})
+    @QtCore.pyqtSlot()
+    def _on_stream_closed(self) -> None:
+        self._cleanup_worker()
+        self.btn_start.setEnabled(True)
+        self.lbl_status.setText("Stream закрыт")
+
+    @QtCore.pyqtSlot()
+    def _on_quotes_stream_closed(self) -> None:
+        self._cleanup_quotes_worker()
 
     @QtCore.pyqtSlot(object)
     def _on_quote_event(self, payload: dict) -> None:
         row = self.tbl_quotes.rowCount()
         self.tbl_quotes.insertRow(row)
-        figi = str(payload.get("figi", ""))
-        instrument_name = self._name_by_figi.get(figi, "")
         self.tbl_quotes.setItem(row, 0, QtWidgets.QTableWidgetItem(str(payload.get("received_at", ""))))
         self.tbl_quotes.setItem(row, 1, QtWidgets.QTableWidgetItem(str(payload.get("event_type", ""))))
+        figi = str(payload.get("figi", ""))
         self.tbl_quotes.setItem(row, 2, QtWidgets.QTableWidgetItem(figi))
-        self.tbl_quotes.setItem(row, 3, QtWidgets.QTableWidgetItem(instrument_name))
+        instrument = self._name_by_figi.get(figi, "")
+        self.tbl_quotes.setItem(row, 3, QtWidgets.QTableWidgetItem(instrument))
         self.tbl_quotes.setItem(row, 4, QtWidgets.QTableWidgetItem(str(payload.get("price", ""))))
         self.tbl_quotes.setItem(row, 5, QtWidgets.QTableWidgetItem(str(payload.get("time", ""))))
         self.tbl_quotes.setItem(row, 6, QtWidgets.QTableWidgetItem(str(payload.get("payload", ""))))
         self.tbl_quotes.scrollToBottom()
-
         if self.tbl_quotes.rowCount() > 500:
             self.tbl_quotes.removeRow(0)
 
     def _cleanup_worker(self) -> None:
-        self._worker = None
         self._thread = None
+        self._worker = None
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        self.lbl_status.setText("Stream остановлен")
 
     def _cleanup_quotes_worker(self) -> None:
-        self._quotes_worker = None
         self._quotes_thread = None
+        self._quotes_worker = None
 
     def _collect_figis_for_quotes(self) -> list[str]:
-        figis: list[str] = []
-        self._name_by_figi = {}
+        favs = load_favorites(FAVORITES_FILE)
+        figis = []
+        for info in favs.values():
+            if info.figi:
+                figis.append(info.figi)
+                self._name_by_figi[info.figi] = f"{info.ticker} | {info.name}"
+        return figis
 
-        if self.instruments_controller is not None:
-            try:
-                for info in self.instruments_controller.favorites():
-                    figi = str(getattr(info, "figi", "") or getattr(info, "instrument_id", "") or "").strip()
-                    if figi:
-                        figis.append(figi)
-                        self._name_by_figi[figi] = str(getattr(info, "name", "") or getattr(info, "ticker", "") or "")
-            except Exception:
-                pass
-
-        if not figis:
-            try:
-                favorites = load_favorites(FAVORITES_FILE)
-                for info in favorites.values():
-                    figi = str(getattr(info, "figi", "") or getattr(info, "instrument_id", "") or "").strip()
-                    if figi:
-                        figis.append(figi)
-                        if figi not in self._name_by_figi:
-                            self._name_by_figi[figi] = str(getattr(info, "name", "") or getattr(info, "ticker", "") or "")
-            except Exception:
-                pass
-
-        # Keep unique order.
-        out: list[str] = []
-        seen = set()
-        for figi in figis:
-            if figi in seen:
-                continue
-            seen.add(figi)
-            out.append(figi)
-        return out
-
-    def _append_subscription_log(self, payload: dict) -> None:
-        path: Path = self.SUBSCRIPTIONS_LOG_FILE
+    def _append_subscription_log(self, entry: dict) -> None:
+        path = Path(self.SUBSCRIPTIONS_LOG_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(payload, ensure_ascii=False)
         with path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")

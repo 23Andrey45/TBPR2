@@ -13,7 +13,7 @@ from events.tab_events import EventsTab
 from journal.tab_journal import JournalTab
 from robots.tab_robots import RobotsTab
 from history.tab_history import HistoryTab
-from trading.trading_context import TradingContext
+from sandbox_trading.tab_sandbox_trading import SandboxTradingTab
 
 try:
     from account.tab_account import AccountTab
@@ -79,15 +79,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.instruments_controller = InstrumentsController(TOKEN, parent=self)
-        self.trading_context = TradingContext(parent=self)
 
-        # Синхронизируем trading_context с app_context
-        self.trading_context.account_changed.connect(lambda aid: setattr(self.app_context, 'sandbox_account_id', aid))
+        # Все подсистемы используют app_context
         self.quotes_hub = QuotesHub(TOKEN, self.instruments_controller, app_context=self.app_context, parent=self)
         self.positions_hub = PositionsHub(
             TOKEN,
             self.instruments_controller,
-            self.trading_context,
+            self.app_context,
             parent=self,
         )
         self.quotes_hub.error.connect(self._on_quotes_error)
@@ -98,18 +96,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.robots_tab = RobotsTab(
             instruments_controller=self.instruments_controller,
             quotes_hub=self.quotes_hub,
-            trading_context=self.trading_context,
+            app_context=self.app_context,
             positions_hub=self.positions_hub,
         )
-        self.history_tab = HistoryTab(trading_context=self.trading_context)
-        self.journal_tab = JournalTab(trading_context=self.trading_context)
-        self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
+        self.history_tab = HistoryTab(app_context=self.app_context)
+        self.journal_tab = JournalTab(app_context=self.app_context)
+        self.events_tab = EventsTab(self.app_context, self.instruments_controller)
 
         self.tabs.addTab(self.instruments_tab, "Инструменты")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.history_tab, "История")
         self.tabs.addTab(self.journal_tab, "Журнал")
         self.tabs.addTab(self.events_tab, "События")
+
+        # Вкладка "Торговля (песочница)"
+        self.sandbox_trading_tab = SandboxTradingTab(
+            instruments_controller=self.instruments_controller,
+            quotes_hub=self.quotes_hub,
+            app_context=self.app_context,
+        )
+        self.tabs.addTab(self.sandbox_trading_tab, "Торговля (песочница)")
 
         if AccountTab is not None:
             self.account_tab = AccountTab()

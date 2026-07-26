@@ -90,7 +90,7 @@ class InstrumentsController(QtCore.QObject):
 
         self._thread.started.connect(self._worker.run)
         self._worker.loaded.connect(self._on_loaded)
-        self._worker.error.connect(self.error.emit)
+        self._worker.error.connect(self._on_error)
 
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
@@ -121,6 +121,20 @@ class InstrumentsController(QtCore.QObject):
 
         self.favorites_updated.emit(self.favorites())
         self.status_changed.emit(f"Акции: {len(self._shares)} | Облигации: {len(self._bonds)} | ETF: {len(self._etfs)}")
+
+    def _on_error(self, tb: str):
+        """Обработка ошибки загрузки каталога."""
+        import traceback
+        print("===== ERROR (InstrumentsController) =====")
+        print(tb)
+        print("=========================================")
+        self.status_changed.emit(
+            f"Ошибка загрузки каталога (работаем без интернета). "
+            f"Избранное: {len(self._favorites)}"
+        )
+        self.loading_changed.emit(False)
+        self._worker = None
+        self._thread = None
 
     def _on_finished(self):
         self.loading_changed.emit(False)

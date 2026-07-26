@@ -117,6 +117,16 @@ class HomeController(QtCore.QObject):
             self._cleanup_candle_worker()
             return
 
+        # Сохраняем свечи в кэш
+        if self._instrument:
+            try:
+                from core.candle_cache import save_cached_candles
+                from app.config import CANDLES_DIR
+                save_cached_candles(CANDLES_DIR, self._instrument, self.interval, self.days, self._candles)
+                self.status_changed.emit(f"Свечи сохранены в кэш")
+            except Exception as e:
+                print(f"[HomeController] Ошибка сохранения кэша: {e}")
+
         self._load_dividends_then_calc()
         self._cleanup_candle_worker()
 
@@ -236,22 +246,32 @@ class HomeController(QtCore.QObject):
         self._cleanup_div_worker()
 
     def _recalc_all_strategies(self):
-        self._results.clear()
+        if not self._candles:
+            return
+
+        self.status_changed.emit("Пересчёт стратегий...")
         ctx = StrategyContext(instrument=self._instrument, dividends=self._dividends)
-        for strategy in STRATEGIES:
-            try:
-                params = self._params_by_strategy.get(strategy.strategy_id, {})
-                result = self._runner.run_one(self._candles, strategy_id=strategy.strategy_id, user_params=params, context=ctx)
-                self._results[strategy.strategy_id] = result
-            except Exception:
-                pass
-        self.strategies_ready.emit(dict(self._results))
-        self.status_changed.emit("Стратегии пересчитаны")
+
+        try:
+            self._results = self._runner.run_all(self._candles, self._params_by_strategy, ctx)
+            self.strategies_ready.emit(self._results)
+            self.status_changed.emit("Стратегии пересчитаны")
+        except Exception:
+            self.error.emit(traceback.format_exc())
+            self.status_changed.emit("Ошибка пересчёта стратегий")
 
     def _cleanup_candle_worker(self):
-        self._thread = None
-        self._worker = None
+        if self._worker:
+            self._worker.deleteLater()
+            self._worker = None
+        if self._thread:
+            self._thread.deleteLater()
+            self._thread = None
 
     def _cleanup_div_worker(self):
-        self._div_thread = None
-        self._div_worker = None
+        if self._div_worker:
+            self._div_worker.deleteLater()
+            self._div_worker = None
+        if self._div_thread:
+            self._div_thread.deleteLater()
+            self._div_thread = None

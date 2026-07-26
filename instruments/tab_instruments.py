@@ -12,33 +12,7 @@ from core.candle_cache import candles_cache_path
 from instruments.home_controller import HomeController
 from instruments.instruments_controller import InstrumentsController
 from instruments.candles_panel_widget import CandlesPanelWidget
-# TODO: Добавить instrument_picker_widget после загрузки из GitHub
-# from instruments.widgets.instrument_picker import InstrumentPickerWidget, kind_to_short
-from app.workers import InstrumentsCatalogLoader, CandleLoader, DividendsLoader
-
-
-# Заглушка пока instrument_picker_widget не добавлен
-def kind_to_short(kind: str) -> str:
-    kind = (kind or "").lower()
-    if kind == "share":
-        return "SHARE"
-    if kind == "bond":
-        return "BOND"
-    if kind == "etf":
-        return "ETF"
-    return kind.upper() or "?"
-
-
-class InstrumentPickerWidgetPlaceholder(QtWidgets.QWidget):
-    """Заглушка пока не добавлен настоящий InstrumentPickerWidget"""
-    instrument_selected = QtCore.pyqtSignal(object)
-
-    def __init__(self, controller: InstrumentsController, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.lbl = QtWidgets.QLabel("InstrumentPickerWidget будет добавлен из GitHub")
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(self.lbl)
+from instruments.instrument_picker_widget import InstrumentPickerWidget, kind_to_short
 
 
 class InstrumentsTab(QtWidgets.QWidget):
@@ -52,9 +26,11 @@ class InstrumentsTab(QtWidgets.QWidget):
         self._last_source: str = ""
 
         # ---- picker (слева)
-        # TODO: Заменить на настоящий InstrumentPickerWidget после загрузки из GitHub
-        self.picker = InstrumentPickerWidgetPlaceholder(controller=self.instr_controller, parent=self)
+        self.picker = InstrumentPickerWidget(controller=self.instr_controller, parent=self)
         self.picker.instrument_selected.connect(self._on_instrument_selected)
+
+        # Загружаем каталог инструментов
+        self.instr_controller.refresh()
 
         # ---- candles panel (справа)
         self.panel = CandlesPanelWidget(parent=self)

@@ -1,4 +1,4 @@
-# tabs/tab_trading.py
+# trading/tab_trading.py
 """
 Вкладка "Торговля" - торговля инструментами с реального счёта.
 Аналогична вкладке "Реальный счёт" + торговая панель.
@@ -54,6 +54,7 @@ class RealAccountLoader(QtCore.QObject):
                 account = accounts[0]
 
             print(f"[TradingTab] Используем счёт: {account.account_id}")
+
             portfolio = get_portfolio(self.token, account.account_id)
             print(f"[TradingTab] Получено позиций: {len(portfolio.positions)}")
 
@@ -98,8 +99,7 @@ class HistoryLoader(QtCore.QObject):
             operations = get_operations(self.token, self.account_id, from_date, to_date)
             if operations:
                 save_operations_to_cache(self.account_id, self.figi, operations)
-
-            self.loaded.emit(operations)
+                self.loaded.emit(operations)
         except Exception as e:
             import traceback
             self.error.emit(f"{str(e)}\n\n{traceback.format_exc()}")
@@ -136,9 +136,7 @@ class TradingTab(QtWidgets.QWidget):
 
     def __init__(self, app_context: AppContext = None, parent=None):
         super().__init__(parent)
-
         self.app_context = app_context
-
         self._account_thread: Optional[QtCore.QThread] = None
         self._account_worker: Optional[RealAccountLoader] = None
         self._history_thread: Optional[QtCore.QThread] = None
@@ -194,7 +192,7 @@ class TradingTab(QtWidgets.QWidget):
         balance_layout.setContentsMargins(0, 0, 0, 0)
         balance_layout.setSpacing(12)
 
-        self.lbl_total = QtWidgets.QLabel("<b>Всего:</b> -")
+        self.lbl_total = QtWidgets.QLabel("**Всего:** -")
         self.lbl_total.setStyleSheet("font-size: 12px; color: #2e7d32;")
         balance_layout.addWidget(self.lbl_total)
 
@@ -254,7 +252,6 @@ class TradingTab(QtWidgets.QWidget):
             }
         """)
         fav_header_layout.addWidget(self.btn_refresh_prices)
-
         left_layout.addLayout(fav_header_layout)
 
         self.fav_table = QtWidgets.QTableWidget(0, 4)
@@ -263,6 +260,7 @@ class TradingTab(QtWidgets.QWidget):
         self.fav_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.fav_table.verticalHeader().setVisible(False)
         self.fav_table.setAlternatingRowColors(True)
+
         header = self.fav_table.horizontalHeader()
         header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
         left_layout.addWidget(self.fav_table)
@@ -327,7 +325,6 @@ class TradingTab(QtWidgets.QWidget):
         """)
         self.btn_refresh_history.clicked.connect(self._refresh_history_for_selected)
         history_filter_layout.addWidget(self.btn_refresh_history)
-
         right_layout.addLayout(history_filter_layout)
 
         self.history_table = QtWidgets.QTableWidget(0, 7)
@@ -342,7 +339,6 @@ class TradingTab(QtWidgets.QWidget):
         main_splitter.setStretchFactor(0, 3)
         main_splitter.setStretchFactor(1, 2)
         main_splitter.setSizes([600, 400])
-
         main_layout.addWidget(main_splitter, 1)
 
         # Нижняя панель
@@ -368,12 +364,12 @@ class TradingTab(QtWidgets.QWidget):
         """)
         self.btn_refresh.clicked.connect(self._refresh_account)
         bottom_layout.addWidget(self.btn_refresh)
+
         bottom_layout.addStretch()
 
         self.lbl_status = QtWidgets.QLabel("")
         self.lbl_status.setStyleSheet("color: #666; font-size: 10px;")
         bottom_layout.addWidget(self.lbl_status)
-
         main_layout.addWidget(bottom_panel)
 
         # Подписка на обновления из контекста
@@ -405,7 +401,6 @@ class TradingTab(QtWidgets.QWidget):
         self._account_worker.finished.connect(self._account_worker.deleteLater)
         self._account_thread.finished.connect(self._account_thread.deleteLater)
         self._account_thread.finished.connect(self._on_account_finished)
-
         self._account_thread.start()
 
     def _on_account_loaded(self, data: dict):
@@ -433,7 +428,7 @@ class TradingTab(QtWidgets.QWidget):
 
             # Обновляем баланс
             total = portfolio.total_amount_portfolio
-            self.lbl_total.setText(f"<b>Всего:</b> {total:,.2f} ₽")
+            self.lbl_total.setText(f"**Всего:** {total:,.2f} ₽")
             self.lbl_shares.setText(f"Акции: {portfolio.total_amount_shares:,.0f} ₽")
             self.lbl_bonds.setText(f"Обл: {portfolio.total_amount_bonds:,.0f} ₽")
             self.lbl_etf.setText(f"ETF: {portfolio.total_amount_etf:,.0f} ₽")
@@ -525,7 +520,6 @@ class TradingTab(QtWidgets.QWidget):
             ticker_label = layout.itemAt(0).widget()
             if ticker_label:
                 ticker = ticker_label.text()
-
                 for info in self._favorites.values():
                     if info.ticker == ticker:
                         self._current_figi = info.figi
@@ -630,13 +624,11 @@ class TradingTab(QtWidgets.QWidget):
         self._history_worker.finished.connect(self._history_thread.quit)
         self._history_worker.finished.connect(self._history_worker.deleteLater)
         self._history_thread.finished.connect(self._history_thread.deleteLater)
-
         self._history_thread.start()
 
     def _on_history_loaded(self, operations: list):
         """Обработка загруженной истории."""
         self._current_operations = operations
-
         self.history_table.setRowCount(0)
 
         for op in operations:
@@ -692,7 +684,6 @@ class TradingTab(QtWidgets.QWidget):
     def _clear_cache_and_reload(self):
         """Очистить кэш и перезагрузить историю."""
         clear_history_cache()
-
         if self._current_figi:
             self.lbl_status.setText("🗑 Кэш очищен, загружаем заново...")
             self._load_history(self._current_figi)
