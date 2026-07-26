@@ -13,6 +13,8 @@ from typing import Optional, Any
 
 from PyQt6 import QtCore, QtWidgets
 
+import traceback
+
 # ✅ ЛОГИРОВАНИЕ для отладки - ВЫВОД В КОНСОЛЬ
 _DEBUG_LOG = []
 
@@ -49,15 +51,16 @@ from app.config import TOKEN, DATA_DIR, DB_FILE
 from core.instruments_catalog import InstrumentInfo
 
 # ✅ Импортируем ОБЩИЕ воркеры
-from workers import (
-    SandboxAccountsLoader,
-    SandboxMoneyBalanceLoader,
+from instruments.order_workers import (
     SandboxPostLimitOrderLoader,
     SandboxActiveOrdersLoader,
     CancelSandboxOrderWorker,
     RecentDealsLoader,
     OrderStatesLoader,
 )
+# Для SandboxAccountsLoader и SandboxMoneyBalanceLoader
+from core.account_api import fetch_sandbox_accounts, fetch_money_balance
+# Или создайте отдельных workers в account/workers/
 
 # Импортируем базу данных - объявляем переменные ДО импорта
 DB_ENABLED = False

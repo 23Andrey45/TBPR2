@@ -23,7 +23,7 @@ from app.config import TOKEN
 from core.instruments_catalog import InstrumentInfo
 from instruments.instruments_controller import InstrumentsController
 from market_data.quotes_hub import QuotesHub
-from workers import TradingStatusLoader
+from trading.workers.order_workers import TradingStatusLoader
 
 
 class _FavoritesPositionsLoader(QtCore.QObject):
