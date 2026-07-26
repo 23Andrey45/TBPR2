@@ -1,0 +1,92 @@
+{
+  "items": [
+    {
+      "instrument_id": "BBG0047315Y7",
+      "ticker": "SBERP",
+      "name": "Сбер Банк - привилегированные акции",
+      "isin": "RU0009029557",
+      "figi": "BBG0047315Y7",
+      "uid": "c190ff1f-1447-4227-b543-316332699ca5"
+    },
+    {
+      "instrument_id": "BBG004S681W1",
+      "ticker": "MTSS",
+      "name": "МТС",
+      "isin": "RU0007775219",
+      "figi": "BBG004S681W1",
+      "uid": "cd8063ad-73ad-4b31-bd0d-93138d9e99a2"
+    },
+    {
+      "instrument_id": "BBG004730JJ5",
+      "ticker": "MOEX",
+      "name": "Московская Биржа",
+      "isin": "RU000A0JR4A1",
+      "figi": "BBG004730JJ5",
+      "uid": "5e1c2634-afc4-4e50-ad6d-f78fc14a539a"
+    },
+    {
+      "instrument_id": "BBG004730RP0",
+      "ticker": "GAZP",
+      "name": "Газпром",
+      "isin": "RU0007661625",
+      "figi": "BBG004730RP0",
+      "uid": "962e2a95-02a9-4171-abd7-aa198dbe643a"
+    },
+    {
+      "instrument_id": "BBG00475K6C3",
+      "ticker": "CHMF",
+      "name": "Северсталь",
+      "isin": "RU0009046510",
+      "figi": "BBG00475K6C3",
+      "uid": "fa6aae10-b8d5-48c8-bbfd-d320d925d096"
+    },
+    {
+      "instrument_id": "BBG004S68829",
+      "ticker": "TATNP",
+      "name": "Татнефть - привилегированные акции",
+      "isin": "RU0006944147",
+      "figi": "BBG004S68829",
+      "uid": "efdb54d3-2f92-44da-b7a3-8849e96039f6"
+    },
+    {
+      "instrument_id": "TCS00A0ZZFS9",
+      "ticker": "LEAS",
+      "name": "Европлан",
+      "isin": "RU000A0ZZFS9",
+      "figi": "TCS00A0ZZFS9",
+      "uid": "ab29b599-4cb4-4b57-9c17-02b140708bf7"
+    },
+    {
+      "instrument_id": "BBG001V474L5",
+      "ticker": "EELT",
+      "name": "Европейская Электротехника",
+      "isin": "RU000A0JWW54",
+      "figi": "BBG001V474L5",
+      "uid": "1c181853-2fd6-4a20-a1c6-cb923a7c7919"
+    },
+    {
+      "instrument_id": "BBG004S68BR5",
+      "ticker": "NMTP",
+      "name": "НМТП",
+      "isin": "RU0009084446",
+      "figi": "BBG004S68BR5",
+      "uid": "93ed8e88-2de2-4aec-a920-3384d24ecb2a"
+    },
+    {
+      "instrument_id": "BBG00475KKY8",
+      "ticker": "NVTK",
+      "name": "НОВАТЭК",
+      "isin": "RU000A0DKVS5",
+      "figi": "BBG00475KKY8",
+      "uid": "0da66728-6c30-44c4-9264-df8fac2467ee"
+    },
+    {
+      "instrument_id": "BBG004731354",
+      "ticker": "ROSN",
+      "name": "Роснефть",
+      "isin": "RU000A0J2Q06",
+      "figi": "BBG004731354",
+      "uid": "fd417230-19cf-4e7b-9623-f7c9ca18ec6b"
+    }
+  ]
+}

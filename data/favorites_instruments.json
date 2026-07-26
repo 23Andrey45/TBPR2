@@ -1,0 +1,58 @@
+{
+  "items": [
+    {
+      "kind": "etf",
+      "instrument_id": "TCS60A101X76",
+      "ticker": "TMOS@",
+      "name": "Крупнейшие компании РФ",
+      "isin": "RU000A101X76",
+      "figi": "TCS60A101X76",
+      "uid": "f509af83-6e71-462f-901f-bcb073f6773b"
+    },
+    {
+      "kind": "etf",
+      "instrument_id": "TCS60A1039N1",
+      "ticker": "TBRU@",
+      "name": "Российские облигации",
+      "isin": "RU000A1039N1",
+      "figi": "TCS60A1039N1",
+      "uid": "e8acd2fb-6de6-4ea4-9bfb-0daad9b2ed7b"
+    },
+    {
+      "kind": "share",
+      "instrument_id": "BBG004730N88",
+      "ticker": "SBER",
+      "name": "Сбер Банк",
+      "isin": "RU0009029540",
+      "figi": "BBG004730N88",
+      "uid": "e6123145-9665-43e0-8413-cd61b8aa9b13"
+    },
+    {
+      "kind": "share",
+      "instrument_id": "TCS80A107UL4",
+      "ticker": "T",
+      "name": "Т-Технологии",
+      "isin": "RU000A107UL4",
+      "figi": "TCS80A107UL4",
+      "uid": "87db07bc-0e02-4e29-90bb-05e8ef791d7b"
+    },
+    {
+      "kind": "etf",
+      "instrument_id": "TCS60A1014L8",
+      "ticker": "LQDT",
+      "name": "ВИМ - Ликвидность",
+      "isin": "RU000A1014L8",
+      "figi": "TCS60A1014L8",
+      "uid": "a240edc6-a605-44b3-9801-37b9f7c3d1ff"
+    },
+    {
+      "kind": "share",
+      "instrument_id": "BBG004S681W1",
+      "ticker": "MTSS",
+      "name": "МТС",
+      "isin": "RU0007775219",
+      "figi": "BBG004S681W1",
+      "uid": "cd8063ad-73ad-4b31-bd0d-93138d9e99a2"
+    }
+  ]
+}

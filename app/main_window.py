@@ -3,25 +3,25 @@ from time import perf_counter
 
 from PyQt6 import QtCore, QtWidgets
 
-from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE, REAL_TOKEN, REAL_TOKEN_ERROR
-from app.app_context import AppContext, init_app_context
-from tabs.instruments_controller import InstrumentsController
-from tabs.positions_hub import PositionsHub
-from tabs.quotes_hub import QuotesHub
-from tabs.tab_home import HomeTab
-from tabs.tab_events import EventsTab
-from tabs.tab_journal import JournalTab
-from tabs.tab_robots import RobotsTab
-from tabs.tab_history import HistoryTab
-from tabs.trading_context import TradingContext
+from app.config import TOKEN, TOKEN_ERROR, TOKEN_FILE, REAL_TOKEN
+from app.app_context import init_app_context
+from instruments.instruments_controller import InstrumentsController
+from market_data.positions_hub import PositionsHub
+from market_data.quotes_hub import QuotesHub
+from instruments.tab_instruments import InstrumentsTab
+from events.tab_events import EventsTab
+from journal.tab_journal import JournalTab
+from robots.tab_robots import RobotsTab
+from history.tab_history import HistoryTab
+from trading.trading_context import TradingContext
 
 try:
-    from tabs.tab_account import AccountTab
+    from account.tab_account import AccountTab
 except Exception:
     AccountTab = None
 
 try:
-    from tabs.tab_real_account import RealAccountTab
+    from real_account.tab_real_account import RealAccountTab
 
     REAL_ACCOUNT_AVAILABLE = True
     print("[MainWindow] RealAccountTab loaded successfully")
@@ -34,7 +34,7 @@ except Exception as e:
     traceback.print_exc()
 
 try:
-    from tabs.tab_debug import DebugTab
+    from debug.tab_debug import DebugTab
 
     DEBUG_TAB_AVAILABLE = True
     print("[MainWindow] DebugTab loaded successfully")
@@ -94,7 +94,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.quotes_hub.start()
         self.positions_hub.start()
 
-        self.home_tab = HomeTab(instruments_controller=self.instruments_controller)
+        self.instruments_tab = InstrumentsTab(instruments_controller=self.instruments_controller)
         self.robots_tab = RobotsTab(
             instruments_controller=self.instruments_controller,
             quotes_hub=self.quotes_hub,
@@ -105,7 +105,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.journal_tab = JournalTab(trading_context=self.trading_context)
         self.events_tab = EventsTab(self.trading_context, self.instruments_controller)
 
-        self.tabs.addTab(self.home_tab, "Инструменты")
+        self.tabs.addTab(self.instruments_tab, "Инструменты")
         self.tabs.addTab(self.robots_tab, "Роботы")
         self.tabs.addTab(self.history_tab, "История")
         self.tabs.addTab(self.journal_tab, "Журнал")
@@ -177,8 +177,8 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
         try:
-            if self.home_tab is not None:
-                self.home_tab.stop_loading()
+            if self.instruments_tab is not None:
+                self.instruments_tab.stop_loading()
         except Exception:
             pass
         try:

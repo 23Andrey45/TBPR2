@@ -1,38 +1,13 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Secrets - НИКОГДА не коммитить!
-secrets/
-.env
-*.env
-
-# Data files (кэш, можно пересоздать)
-data/*.json
-data/*.csv
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/candles_cache/
+*.pyc
 
 # IDE
 .idea/
-.vscode/
-*.swp
-*.swo
-*~
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
+# Secrets
+!secrets/
+.env
+*.env
+*token*
+!secrets/tinvest_real_token.txt
