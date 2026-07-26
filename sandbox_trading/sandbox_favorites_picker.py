@@ -1,3 +1,4 @@
+# sandbox_trading/sandbox_favorites_picker.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -23,7 +24,7 @@ from app.config import TOKEN
 from core.instruments_catalog import InstrumentInfo
 from instruments.instruments_controller import InstrumentsController
 from market_data.quotes_hub import QuotesHub
-from trading.workers.order_workers import TradingStatusLoader
+# from trading.workers.order_workers import TradingStatusLoader
 
 
 class _FavoritesPositionsLoader(QtCore.QObject):
@@ -430,7 +431,7 @@ class FavoritesOnlyPicker(QtWidgets.QWidget):
         # _log(f"_request_status_load: {len(figis)} figis")
 
         self._status_thread = QtCore.QThread(self)
-        self._status_worker = TradingStatusLoader(TOKEN, figis)
+#        self._status_worker = TradingStatusLoader(TOKEN, figis)
         self._status_worker.moveToThread(self._status_thread)
 
         self._status_thread.started.connect(self._status_worker.run)

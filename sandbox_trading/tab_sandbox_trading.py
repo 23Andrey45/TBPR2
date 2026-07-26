@@ -1,5 +1,7 @@
-# tabs/tab_sandbox_trading.py — ИСПРАВЛЕННАЯ ВЕРСИЯ
-# Все логи выводятся в консоль через print()
+# sandbox_trading/tab_sandbox_trading.py
+"""
+Вкладка "Торговля" - торговля в песочнице.
+"""
 
 from __future__ import annotations
 
@@ -59,8 +61,10 @@ from instruments.order_workers import (
     OrderStatesLoader,
 )
 # Для SandboxAccountsLoader и SandboxMoneyBalanceLoader
-from core.account_api import fetch_sandbox_accounts, fetch_money_balance
-# Или создайте отдельных workers в account/workers/
+from account.account_workers import (
+    SandboxAccountsLoader,
+    SandboxMoneyBalanceLoader,
+)
 
 # Импортируем базу данных - объявляем переменные ДО импорта
 DB_ENABLED = False
@@ -98,7 +102,21 @@ from sandbox_trading.sandbox_favorites_picker import FavoritesOnlyPicker
 from core.sandbox_orders_api import PlaceOrderAttempt, ActiveOrder
 
 
+def kind_to_short(kind: str) -> str:
+    """Преобразовать тип инструмента в короткое обозначение."""
+    kind = (kind or "").lower()
+    if kind == "share":
+        return "SHARE"
+    if kind == "bond":
+        return "BOND"
+    if kind == "etf":
+        return "ETF"
+    return kind.upper() or "?"
+
+
 class SandboxTradingTab(QtWidgets.QWidget):
+    """Вкладка торговли в песочнице."""
+
     ORDERS_CACHE_FILE = DATA_DIR / "orders_cache.json"
     FILLS_CACHE_FILE = DATA_DIR / "fills_cache.json"
     DEBUG_ORDERS_LOG = False
