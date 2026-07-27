@@ -27,8 +27,13 @@ D:\TBPR\tbpr1\trading
 D:\TBPR\tbpr1\!data\candles_cache
 D:\TBPR\tbpr1\!data\favorites_instruments.json
 D:\TBPR\tbpr1\!data\real_account_history
+D:\TBPR\tbpr1\!data\robots_cache.json
 D:\TBPR\tbpr1\!data\tbpr.db
+D:\TBPR\tbpr1\!data\tbpr.db-shm
+D:\TBPR\tbpr1\!data\tbpr.db-wal
 D:\TBPR\tbpr1\!data\candles_cache\SBER_share_RU0009029540_CANDLE_INTERVAL_HOUR_365d.csv
+D:\TBPR\tbpr1\!data\real_account_history\2016617914_BBG004730N88.json
+D:\TBPR\tbpr1\!data\real_account_history\2016617914_TCS80A107UL4.json
 D:\TBPR\tbpr1\!secrets\tinvest_real_token.txt
 D:\TBPR\tbpr1\!secrets\tinvest_token.txt
 D:\TBPR\tbpr1\.idea\.gitignore
@@ -206,4 +211,5 @@ D:\TBPR\tbpr1\trading\tab_trading.py
 D:\TBPR\tbpr1\trading\trading_panel_widget.py
 D:\TBPR\tbpr1\trading\__init__.py
 D:\TBPR\tbpr1\trading\__pycache__
+D:\TBPR\tbpr1\trading\__pycache__\trading_panel_widget.cpython-311.pyc
 D:\TBPR\tbpr1\trading\__pycache__\__init__.cpython-311.pyc
