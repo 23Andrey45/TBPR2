@@ -1,4 +1,4 @@
-# tabs/tab_debug.py
+# debug/tab_debug.py
 """
 Вкладка "Отладка" - просмотр сырых данных от T-Invest API.
 Для отладки и понимания структуры данных.
@@ -24,7 +24,7 @@ from t_tech.invest import Client
 
 class DebugDataLoader(QtCore.QObject):
     """Загрузчик данных для отладки."""
-    loaded = QtCore.pyqtSignal(object)  # dict с данными
+    loaded = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -32,7 +32,7 @@ class DebugDataLoader(QtCore.QObject):
         super().__init__()
         self.token = token
         self.account_id = account_id
-        self.data_type = data_type  # "orders", "portfolio", "accounts", "fills"
+        self.data_type = data_type
 
     @QtCore.pyqtSlot()
     def run(self):
@@ -123,7 +123,7 @@ class DebugDataLoader(QtCore.QObject):
                 }
 
             elif self.data_type == "quotes":
-                # Загружаем котировки для избранных инструментов
+                # Загружаем котировки для избранных инструментов (биржевые)
                 favorites = load_favorites(FAVORITES_FILE)
                 figis = [info.figi for info in favorites.values() if info.figi]
 
@@ -139,7 +139,6 @@ class DebugDataLoader(QtCore.QObject):
                                 price_value = float(getattr(price, "units", 0) or 0) + float(
                                     getattr(price, "nano", 0) or 0) / 1e9
 
-                            # Находим ticker из избранного
                             ticker = None
                             for info in favorites.values():
                                 if info.figi == figi:
@@ -151,6 +150,7 @@ class DebugDataLoader(QtCore.QObject):
                                 "ticker": ticker,
                                 "price": price_value,
                                 "time": getattr(lp, "time", None).isoformat() if getattr(lp, "time", None) else None,
+                                "source": "exchange",
                             })
 
                 result = {
@@ -158,8 +158,90 @@ class DebugDataLoader(QtCore.QObject):
                     "quotes": quotes_result
                 }
 
+            elif self.data_type == "orderbook":
+                # Стакан - получаем ближайшие цены покупки (bid) и продажи (ask)
+                # Работает даже когда биржа закрыта (внебиржевые торги)
+                favorites = load_favorites(FAVORITES_FILE)
+                figis = [info.figi for info in favorites.values() if info.figi]
+
+                quotes_result = []
+                if figis:
+                    with Client(self.token) as client:
+                        for figi in figis:
+                            try:
+                                # Получаем стакан глубиной 10
+                                orderbook = client.market_data.get_order_book(instrument_id=figi, depth=10)
+
+                                # Находим ticker из избранного
+                                ticker = None
+                                for info in favorites.values():
+                                    if info.figi == figi:
+                                        ticker = info.ticker
+                                        break
+
+                                # Цена последней сделки
+                                last_price = getattr(orderbook, "last_price", None)
+                                last_price_value = None
+                                if last_price:
+                                    last_price_value = float(getattr(last_price, "units", 0) or 0) + \
+                                                       float(getattr(last_price, "nano", 0) or 0) / 1e9
+
+                                # Лучшие цены в стакане
+                                best_bid = None
+                                best_ask = None
+
+                                bids = getattr(orderbook, "bids", []) or []
+                                if bids:
+                                    best_bid = bids[0]
+
+                                asks = getattr(orderbook, "asks", []) or []
+                                if asks:
+                                    best_ask = asks[0]
+
+                                bid_price = None
+                                if best_bid:
+                                    price = getattr(best_bid, "price", None)
+                                    if price:
+                                        bid_price = float(getattr(price, "units", 0) or 0) + \
+                                                    float(getattr(price, "nano", 0) or 0) / 1e9
+
+                                ask_price = None
+                                if best_ask:
+                                    price = getattr(best_ask, "price", None)
+                                    if price:
+                                        ask_price = float(getattr(price, "units", 0) or 0) + \
+                                                    float(getattr(price, "nano", 0) or 0) / 1e9
+
+                                quotes_result.append({
+                                    "figi": figi,
+                                    "ticker": ticker,
+                                    "last_price": last_price_value,
+                                    "bid_price": bid_price,
+                                    "ask_price": ask_price,
+                                    "spread": (ask_price - bid_price) if (bid_price and ask_price) else None,
+                                    "time": getattr(orderbook, "time", None).isoformat() if getattr(orderbook, "time",
+                                                                                                    None) else None,
+                                    "source": "orderbook",
+                                })
+                            except Exception as e:
+                                import traceback
+                                quotes_result.append({
+                                    "figi": figi,
+                                    "ticker": None,
+                                    "last_price": None,
+                                    "bid_price": None,
+                                    "ask_price": None,
+                                    "spread": None,
+                                    "time": None,
+                                    "source": f"error: {traceback.format_exc()[:100]}",
+                                })
+
+                result = {
+                    "count": len(quotes_result),
+                    "quotes": quotes_result
+                }
+
             elif self.data_type == "trading":
-                # Получаем информацию о торговле избранными инструментами
                 summary = get_favorites_summary(self.token, self.account_id)
                 result = summary
 
@@ -186,30 +268,30 @@ class DebugTab(QtWidgets.QWidget):
         self._load_thread: Optional[QtCore.QThread] = None
         self._load_worker: Optional[DebugDataLoader] = None
 
-        # Подключаемся к контексту
         if self.app_context:
             self.app_context.account_changed.connect(self._on_account_changed)
 
         # Выбор типа данных
         self.data_type_combo = QtWidgets.QComboBox()
         self.data_type_combo.addItems([
-            "accounts - Список счетов",
+            "accounts - Счета",
             "portfolio - Портфель",
-            "orders - Активные заявки",
-            "fills - История сделок (операции)",
-            "quotes - Котировки избранного",
-            "trading - Состояние торговли избранного",
+            "orders - Заявки",
+            "fills - Исполнения (30 дней)",
+            "quotes - Котировки (биржевые)",
+            "orderbook - Стакан (bid/ask)",
+            "trading - Торговля (избранное)",
         ])
-        self.data_type_combo.setCurrentIndex(0)
+        self.data_type_combo.setCurrentIndex(4)
 
-        # Кнопки
-        self.btn_load = QtWidgets.QPushButton("📥 Загрузить данные")
+        # Кнопка загрузки
+        self.btn_load = QtWidgets.QPushButton("📥 Загрузить")
+        self.btn_load.setMinimumHeight(30)
         self.btn_load.setStyleSheet("""
             QPushButton {
                 background-color: #2196F3;
                 color: white;
                 border: none;
-                padding: 8px 16px;
                 border-radius: 4px;
                 font-weight: bold;
                 font-size: 11px;
@@ -218,303 +300,112 @@ class DebugTab(QtWidgets.QWidget):
                 background-color: #1976D2;
             }
         """)
-        self.btn_load.clicked.connect(self._load_data)
+        self.btn_load.clicked.connect(self._on_load_clicked)
 
-        self.btn_clear = QtWidgets.QPushButton("🗑 Очистить")
-        self.btn_clear.clicked.connect(self._clear_all)
+        # Поле account_id
+        self.ed_account_id = QtWidgets.QLineEdit()
+        self.ed_account_id.setPlaceholderText("account_id")
+        self.ed_account_id.setMaximumWidth(300)
 
         # Верхняя панель
         top_layout = QtWidgets.QHBoxLayout()
-        top_layout.addWidget(QtWidgets.QLabel("🔍 Отладка реального счёта:"))
-        top_layout.addWidget(self.data_type_combo)
+        top_layout.addWidget(QtWidgets.QLabel("Данные:"))
+        top_layout.addWidget(self.data_type_combo, 1)
+        top_layout.addWidget(QtWidgets.QLabel("Account:"))
+        top_layout.addWidget(self.ed_account_id)
         top_layout.addWidget(self.btn_load)
-        top_layout.addWidget(self.btn_clear)
         top_layout.addStretch()
 
         # Статус
         self.lbl_status = QtWidgets.QLabel("")
         self.lbl_status.setStyleSheet("color: #666; font-size: 10px;")
-        self._update_status()
 
-        # Текстовые поля для данных
-        self.text_raw = QtWidgets.QTextEdit()
-        self.text_raw.setPlaceholderText("Сырые данные (JSON)...")
-        self.text_raw.setReadOnly(True)
-        self.text_raw.setStyleSheet("""
+        # JSON вывод
+        self.json_output = QtWidgets.QTextEdit()
+        self.json_output.setReadOnly(True)
+        self.json_output.setFontFamily("Consolas")
+        self.json_output.setFontPointSize(10)
+        self.json_output.setStyleSheet("""
             QTextEdit {
-                font-family: Consolas, Monaco, monospace;
-                font-size: 11px;
-                background: #f8f9fa;
-                border: 1px solid #ddd;
-                border-radius: 3px;
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 8px;
             }
         """)
 
-        self.text_formatted = QtWidgets.QTextEdit()
-        self.text_formatted.setPlaceholderText("Отформатированные данные...")
-        self.text_formatted.setReadOnly(True)
-        self.text_formatted.setStyleSheet("""
-            QTextEdit {
-                font-family: Consolas, Monaco, monospace;
-                font-size: 11px;
-                background: #fff;
-                border: 1px solid #ddd;
-                border-radius: 3px;
-            }
-        """)
+        # Кнопка копирования
+        self.btn_copy = QtWidgets.QPushButton("📋 Копировать JSON")
+        self.btn_copy.setMaximumWidth(150)
+        self.btn_copy.clicked.connect(self._copy_json)
 
-        # Вкладки для разных форматов
-        self.tabs = QtWidgets.QTabWidget()
-        self.tabs.addTab(self.text_raw, "📄 JSON (сырой)")
-        self.tabs.addTab(self.text_formatted, "📋 Отформатировано")
+        bottom_layout = QtWidgets.QHBoxLayout()
+        bottom_layout.addWidget(self.lbl_status, 1)
+        bottom_layout.addWidget(self.btn_copy)
 
-        # Основная компоновка
+        # Компоновка
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(top_layout)
         layout.addWidget(self.lbl_status)
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.json_output, 1)
+        layout.addLayout(bottom_layout)
 
-        # Подсказка
-        hint = QtWidgets.QLabel(
-            "💡 Выделите текст в любом поле и нажмите Ctrl+C для копирования. "
-            "Данные можно сохранить в файл через правый клик → Сохранить как..."
-        )
-        hint.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-    def set_account_id(self, account_id: str):
-        """Установить account_id (для совместимости)."""
+        # Автозаполнение account_id
         if self.app_context:
-            self.app_context.account_id = account_id
+            self.ed_account_id.setText(self.app_context.account_id)
 
     def _on_account_changed(self, account_id: str):
-        """Обновление account_id."""
-        print(f"[DebugTab] account_changed: {account_id}")
-        self._update_status()
+        self.ed_account_id.setText(account_id)
 
-    def _update_status(self):
-        """Обновить статус с account_id."""
-        if self.app_context:
-            account_id = self.app_context.real_account_id
-            if account_id:
-                self.lbl_status.setText(f"✅ Реальный счёт: {account_id[:8]}...")
-            else:
-                self.lbl_status.setText("❌ Нет account_id реального счёта")
-        else:
-            self.lbl_status.setText("❌ Нет контекста")
+    def _on_load_clicked(self):
+        data_type = str(self.data_type_combo.currentText()).split(" - ")[0].strip()
+        account_id = self.ed_account_id.text().strip()
 
-    def _get_token(self) -> str:
-        """Получить токен реального счёта."""
-        return REAL_TOKEN
-
-    def _load_data(self):
-        """Загрузить данные."""
-        self._update_status()
-
-        # Всегда используем реальный счёт
-        if self.app_context:
-            self.app_context.switch_to_real()
-
-        token = self._get_token()
-
-        # Проверяем токен
-        if not token or token == "paste_your_t_invest_token_here":
-            self.lbl_status.setText("❌ Токен реального счёта не настроен")
-            print(f"[DebugTab] Real token not configured")
+        if not account_id and data_type != "quotes":
+            self.lbl_status.setText("❌ Укажите account_id")
             return
 
-        # Получаем account_id из контекста
-        account_id = self.app_context.real_account_id if self.app_context else ""
-
-        # Для accounts account_id не нужен
-        if not account_id and self.data_type_combo.currentText() != "accounts - Список счетов":
-            self.lbl_status.setText(f"❌ Нет account_id реального счёта")
-            print(f"[DebugTab] load_data: account_id={account_id}, data_type={self.data_type_combo.currentText()}")
-            return
-
-        print(f"[DebugTab] Loading: account_type=real, account_id={account_id[:8] if account_id else 'N/A'}...")
-
-        # Определяем тип данных
-        data_type_map = {
-            "accounts - Список счетов": "accounts",
-            "portfolio - Портфель": "portfolio",
-            "orders - Активные заявки": "orders",
-            "fills - История сделок (операции)": "fills",
-            "quotes - Котировки избранного": "quotes",
-            "trading - Состояние торговли избранного": "trading",
-        }
-        data_type = data_type_map.get(self.data_type_combo.currentText(), "accounts")
-
-        # Передаём account_id в загрузчик
-        self._load_thread = QtCore.QThread(self)
-        self._load_worker = DebugDataLoader(token, account_id, data_type)
-
-        # Запускаем загрузку
         self.btn_load.setEnabled(False)
+        self.btn_load.setText("⏳ Загрузка...")
         self.lbl_status.setText(f"⏳ Загрузка {data_type}...")
+        self.json_output.setText("")
+
+        self._load_thread = QtCore.QThread(self)
+        self._load_worker = DebugDataLoader(TOKEN, account_id, data_type)
+        self._load_worker.moveToThread(self._load_thread)
 
         self._load_thread.started.connect(self._load_worker.run)
-        self._load_worker.loaded.connect(self._on_data_loaded)
+        self._load_worker.loaded.connect(self._on_loaded)
         self._load_worker.error.connect(self._on_error)
         self._load_worker.finished.connect(self._load_thread.quit)
         self._load_worker.finished.connect(self._load_worker.deleteLater)
         self._load_thread.finished.connect(self._load_thread.deleteLater)
-        self._load_thread.finished.connect(self._on_finished)
-
         self._load_thread.start()
 
-    def _on_data_loaded(self, data: dict):
-        """Обработка загруженных данных."""
-        result = data.get("result", {})
-        timestamp = data.get("timestamp", "")
-        data_type = data.get("data_type", "")
+    def _on_loaded(self, payload: dict):
+        self.btn_load.setEnabled(True)
+        self.btn_load.setText("📥 Загрузить")
 
-        # Сырой JSON
-        raw_json = json.dumps(result, indent=2, ensure_ascii=False)
-        self.text_raw.setPlainText(raw_json)
+        data_type = payload.get("data_type", "")
+        result = payload.get("result", {})
+        timestamp = payload.get("timestamp", "")
 
-        # Отформатированный вид
-        formatted = self._format_data(result, data_type)
-        self.text_formatted.setPlainText(formatted)
+        # Форматируем JSON
+        json_str = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+        self.json_output.setText(json_str)
 
-        count = len(result.get("orders", [])) or len(result.get("positions", [])) or len(result.get("accounts", []))
-        self.lbl_status.setText(f"✅ Загружено: {count} записей ({data_type}) в {timestamp}")
-
-    def _format_data(self, result: dict, data_type: str) -> str:
-        """Отформатировать данные для удобного чтения."""
-        lines = []
-        lines.append(f"Тип данных: {data_type}")
-        lines.append(f"Время загрузки: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append("=" * 60)
-        lines.append("")
-
-        if data_type == "accounts":
-            accounts = result.get("accounts", [])
-            lines.append(f"Всего счетов: {len(accounts)}")
-            lines.append("")
-            for i, acc in enumerate(accounts, 1):
-                lines.append(f"[{i}] {acc.get('account_id', 'N/A')}")
-                lines.append(f"    Тип: {acc.get('account_type', 'N/A')}")
-                lines.append(f"    Статус: {acc.get('status', 'N/A')}")
-                lines.append(f"    Валюта: {acc.get('currency', 'N/A')}")
-                lines.append("")
-
-        elif data_type == "portfolio":
-            lines.append(f"Общая стоимость: {result.get('total_amount_portfolio', 0):,.2f} ₽")
-            lines.append(f"Акции: {result.get('total_amount_shares', 0):,.2f} ₽")
-            lines.append(f"Облигации: {result.get('total_amount_bonds', 0):,.2f} ₽")
-            lines.append(f"ETF: {result.get('total_amount_etf', 0):,.2f} ₽")
-            lines.append(f"Валюта: {result.get('total_amount_currencies', 0):,.2f} ₽")
-            lines.append("")
-            lines.append(f"Позиций: {len(result.get('positions', []))}")
-            lines.append("")
-            for pos in result.get("positions", [])[:20]:  # Первые 20
-                lines.append(f"  • {pos.get('ticker', 'N/A')} | {pos.get('name', 'N/A')}")
-                lines.append(f"    FIGI: {pos.get('figi', 'N/A')}")
-                lines.append(f"    Кол-во: {pos.get('quantity', 0):,.6f}")
-                lines.append(f"    Средняя цена: {pos.get('position_avg_price', 0):,.2f}")
-                current_price = pos.get('current_price')
-                lines.append(f"    Тек. цена: {current_price:,.2f}" if current_price else "    Тек. цена: N/A")
-                lines.append("")
-            if len(result.get("positions", [])) > 20:
-                lines.append(f"... и ещё {len(result.get('positions', [])) - 20} позиций")
-
-        elif data_type == "orders":
-            lines.append(f"Всего заявок: {result.get('count', 0)}")
-            lines.append("")
-            for order in result.get("orders", []):
-                lines.append(f"  • {order.get('order_id', 'N/A')[:8]}...")
-                lines.append(f"    Ticker: {order.get('ticker', 'N/A')}")
-                lines.append(f"    Тип: {order.get('order_type', 'N/A')}")
-                lines.append(f"    Статус: {order.get('status', 'N/A')}")
-                lines.append(f"    Кол-во: {order.get('lots_requested', 0)} / {order.get('lots_executed', 0)}")
-                lines.append(f"    Цена: {order.get('price', 0):,.2f}")
-                lines.append(f"    Создана: {order.get('created', 'N/A')}")
-                lines.append("")
-
-        elif data_type == "fills":
-            lines.append(f"Всего операций: {result.get('count', 0)}")
-            lines.append(f"Период: {result.get('period_days', 30)} дней")
-            lines.append("")
-            for op in result.get("operations", [])[:30]:  # Первые 30
-                lines.append(f"  • {op.get('date', 'N/A')[:10]}")
-                lines.append(f"    Ticker: {op.get('ticker', 'N/A')}")
-                lines.append(f"    Тип: {op.get('operation_type', 'N/A')}")
-                quantity = op.get('quantity', 0)
-                lines.append(f"    Кол-во: {quantity:,.6f}" if quantity else "    Кол-во: 0")
-                price = op.get('price')
-                lines.append(f"    Цена: {price:,.2f}" if price else "    Цена: N/A")
-                amount = op.get('amount')
-                lines.append(
-                    f"    Сумма: {amount:,.2f} {op.get('currency', 'RUB')}" if amount else f"    Сумма: N/A {op.get('currency', 'RUB')}")
-                lines.append("")
-            if len(result.get("operations", [])) > 30:
-                lines.append(f"... и ещё {len(result.get('operations', [])) - 30} операций")
-
-        elif data_type == "quotes":
-            lines.append(f"Всего котировок: {result.get('count', 0)}")
-            lines.append("")
-            for quote in result.get("quotes", []):
-                lines.append(f"  • {quote.get('ticker', 'N/A')} ({quote.get('figi', 'N/A')[:8]}...)")
-                price = quote.get('price')
-                lines.append(f"    Цена: {price:,.2f} ₽" if price else "    Цена: N/A")
-                time_str = quote.get('time', 'N/A')
-                if time_str and time_str != 'N/A':
-                    lines.append(f"    Время: {time_str[:19]}")
-                lines.append("")
-
-        elif data_type == "trading":
-            lines.append("📊 СВОДКА ПО ИЗБРАННОМУ")
-            lines.append("=" * 50)
-            lines.append(f"Всего инструментов: {result.get('total_instruments', 0)}")
-            lines.append(f"Рыночная стоимость: {result.get('total_market_value', 0):,.2f} ₽")
-            lines.append(f"Средняя стоимость: {result.get('total_cost', 0):,.2f} ₽")
-            lines.append(
-                f"P&L: {result.get('total_unrealized_pnl', 0):,.2f} ₽ ({result.get('total_unrealized_pnl_percent', 0):.2f}%)")
-            lines.append("")
-            lines.append(f"В плюсе: {result.get('profitable_count', 0)}")
-            lines.append(f"В минусе: {result.get('unprofitable_count', 0)}")
-            lines.append(f"Без изменений: {result.get('flat_count', 0)}")
-            lines.append("")
-            lines.append("=" * 50)
-            lines.append("ДЕТАЛИ ПО ИНСТРУМЕНТАМ:")
-            lines.append("=" * 50)
-
-            for inst in result.get("instruments", []):
-                pnl = inst.get('unrealized_pnl', 0)
-                pnl_color = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
-                trading_status = inst.get('trading_status', 'unknown')
-
-                # Статус торгов
-                status_emoji = "🟢" if trading_status == "MARKET_STATUS_OPEN" else "🔴" if trading_status == "MARKET_STATUS_CLOSED" else "🟡"
-
-                lines.append(
-                    f"{pnl_color} {inst.get('ticker', 'N/A')} | {inst.get('name', 'N/A')} {status_emoji} {trading_status}")
-                lines.append(f"    FIGI: {inst.get('figi', 'N/A')}")
-                lines.append(f"    Кол-во: {inst.get('quantity', 0):,.6f}")
-                lines.append(f"    Средняя: {inst.get('average_price', 0):,.2f} ₽")
-                lines.append(f"    Текущая: {inst.get('current_price', 0):,.2f} ₽")
-                lines.append(f"    Рыночная: {inst.get('market_value', 0):,.2f} ₽")
-                lines.append(f"    P&L: {pnl:,.2f} ₽ ({inst.get('unrealized_pnl_percent', 0):.2f}%)")
-                lines.append("")
-
-        return "\n".join(lines)
+        count = result.get("count", 0) if isinstance(result, dict) else 0
+        self.lbl_status.setText(f"✅ {data_type}: {count} записей | {timestamp}")
 
     def _on_error(self, error: str):
-        """Обработка ошибки."""
-        self.text_raw.setPlainText(f"❌ Ошибка:\n\n{error}")
-        self.text_formatted.setPlainText("")
-        self.lbl_status.setText("❌ Ошибка загрузки")
-
-    def _on_finished(self):
-        """Завершение загрузки."""
         self.btn_load.setEnabled(True)
-        self._load_thread = None
-        self._load_worker = None
+        self.btn_load.setText("📥 Загрузить")
+        self.lbl_status.setText(f"❌ Ошибка")
+        self.json_output.setText(error)
 
-    def _clear_all(self):
-        """Очистить все поля."""
-        self.text_raw.clear()
-        self.text_formatted.clear()
-        self.lbl_status.setText("🗑 Очищено")
+    def _copy_json(self):
+        text = self.json_output.toPlainText()
+        if text:
+            QtWidgets.QApplication.clipboard().setText(text)
+            self.lbl_status.setText("📋 JSON скопирован в буфер обмена")

@@ -1,29 +1,31 @@
-# tabs/tab_real_account.py
+# real_account/tab_real_account.py
 """
-Вкладка "Реальный счёт" - информация по реальному счёту с историей сделок.
+Вкладка "Реальный счёт" - информация по реальному счёту с торговой панелью.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from app.config import REAL_TOKEN, REAL_TOKEN_ERROR, REAL_TOKEN_FILE, FAVORITES_FILE
+from app.app_context import AppContext
 from core.account_api import get_accounts, get_portfolio, PortfolioPosition, AccountInfo
 from core.operations_api import get_operations, save_operations_to_cache, load_operations_from_cache, Operation
 from core.orders_api import get_orders, Order
 from core.instruments_catalog import InstrumentInfo
 from core.favorites_repo import load_favorites
-from app.workers import OrdersLoader
-from market_data.quotes_hub import QuotesHub
-from instruments.instruments_controller import InstrumentsController
 from core.trading_api import post_order
+
+if TYPE_CHECKING:
+    from market_data.quotes_hub import QuotesHub
 
 
 class RealAccountLoader(QtCore.QObject):
     """Загрузчик данных счёта в фоновом потоке."""
-    loaded = QtCore.pyqtSignal(object)  # dict с account и portfolio
+    loaded = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -35,9 +37,6 @@ class RealAccountLoader(QtCore.QObject):
     def run(self):
         try:
             print(f"[RealAccountLoader] Начинаем загрузку...")
-
-            # Получаем список счетов
-            print("[RealAccountLoader] Запрашиваем список счетов...")
             accounts = get_accounts(self.token)
             print(f"[RealAccountLoader] Получено счетов: {len(accounts)}")
 
@@ -46,22 +45,16 @@ class RealAccountLoader(QtCore.QObject):
                 self.finished.emit()
                 return
 
-            # Берём первый открытый счёт
             account = None
             for acc in accounts:
-                print(f"[RealAccountLoader] Счёт: {acc.account_id}, статус: {acc.status}")
                 if acc.status == "Opened":
                     account = acc
                     break
 
             if not account:
-                print("[RealAccountLoader] Нет открытых счетов, берём первый")
                 account = accounts[0]
 
             print(f"[RealAccountLoader] Используем счёт: {account.account_id}")
-
-            # Получаем портфель
-            print("[RealAccountLoader] Запрашиваем портфель...")
             portfolio = get_portfolio(self.token, account.account_id)
             print(f"[RealAccountLoader] Получено позиций: {len(portfolio.positions)}")
 
@@ -80,7 +73,7 @@ class RealAccountLoader(QtCore.QObject):
 
 class HistoryLoader(QtCore.QObject):
     """Загрузчик истории операций в фоновом потоке."""
-    loaded = QtCore.pyqtSignal(object)  # list[Operation]
+    loaded = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -95,8 +88,6 @@ class HistoryLoader(QtCore.QObject):
     def run(self):
         try:
             print(f"[HistoryLoader] Загрузка истории для {self.figi}...")
-
-            # Сначала пробуем загрузить из кэша
             cached = load_operations_from_cache(self.account_id, self.figi)
             if cached:
                 print(f"[HistoryLoader] Загружено из кэша: {len(cached)} операций")
@@ -104,20 +95,16 @@ class HistoryLoader(QtCore.QObject):
                 self.finished.emit()
                 return
 
-            # Загружаем с сервера
             to_date = datetime.now(timezone.utc)
             from_date = to_date - timedelta(days=self.days)
-
             print(f"[HistoryLoader] Запрашиваем историю с {from_date} по {to_date}...")
             operations = get_operations(self.token, self.account_id, from_date, to_date)
 
-            # Фильтруем по инструменту
             if self.figi:
                 operations = [op for op in operations if op.figi == self.figi]
 
             print(f"[HistoryLoader] Получено операций: {len(operations)}")
 
-            # Сохраняем в кэш
             if operations:
                 save_operations_to_cache(self.account_id, self.figi, operations)
                 print(f"[HistoryLoader] Сохранено в кэш")
@@ -133,7 +120,7 @@ class HistoryLoader(QtCore.QObject):
 
 class OrdersLoader(QtCore.QObject):
     """Загрузчик активных заявок в фоновом потоке."""
-    loaded = QtCore.pyqtSignal(object)  # list[Order]
+    loaded = QtCore.pyqtSignal(object)
     error = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal()
 
@@ -146,12 +133,8 @@ class OrdersLoader(QtCore.QObject):
     def run(self):
         try:
             print(f"[OrdersLoader] Загрузка активных заявок...")
-
-            # Загружаем с сервера (только активные, кэш не используем)
-            print(f"[OrdersLoader] Запрашиваем активные заявки...")
             orders = get_orders(self.token, self.account_id)
             print(f"[OrdersLoader] Получено активных заявок: {len(orders)}")
-
             self.loaded.emit(orders)
         except Exception as e:
             import traceback
@@ -162,19 +145,22 @@ class OrdersLoader(QtCore.QObject):
 
 
 class RealAccountTab(QtWidgets.QWidget):
-    """Вкладка реального счёта."""
+    """Вкладка реального счёта с торговой панелью."""
 
-    def __init__(self, instruments_controller: InstrumentsController = None, quotes_hub: QuotesHub = None,
-                 app_context=None, parent=None):
+    def __init__(
+            self,
+            instruments_controller=None,
+            quotes_hub: "QuotesHub" = None,
+            app_context: AppContext = None,
+            parent=None,
+    ):
         super().__init__(parent)
-
         self.instruments_controller = instruments_controller
         self.quotes_hub = quotes_hub
         self.app_context = app_context
 
-        # Подписка на обновление котировок
         if self.app_context:
-            self.app_context.quotes_updated.connect(self._on_quotes_updated)  # type: ignore
+            self.app_context.quotes_updated.connect(self._on_quotes_updated)
 
         self._account_thread: Optional[QtCore.QThread] = None
         self._account_worker: Optional[RealAccountLoader] = None
@@ -190,7 +176,6 @@ class RealAccountTab(QtWidgets.QWidget):
         self._all_orders: list[Order] = []
         self._current_operations: list[Operation] = []
 
-        # Проверка токена
         if not REAL_TOKEN:
             layout = QtWidgets.QVBoxLayout(self)
             label = QtWidgets.QLabel(
@@ -203,34 +188,53 @@ class RealAccountTab(QtWidgets.QWidget):
             layout.addWidget(label)
             return
 
-        # Основной layout
         main_layout = QtWidgets.QVBoxLayout(self)
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Верхняя панель: информация о счёте + баланс
+        # Верхняя панель: информация о счёте + кнопка обновления + баланс
         top_panel = QtWidgets.QWidget()
         top_layout = QtWidgets.QHBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(15)
 
-        # Информация о счёте
         self.lbl_account_info = QtWidgets.QLabel("Загрузка...")
         self.lbl_account_info.setStyleSheet("font-weight: bold; font-size: 12px;")
         top_layout.addWidget(self.lbl_account_info, 1)
 
-        # Разделитель
         separator = QtWidgets.QLabel("│")
         separator.setStyleSheet("color: #999; font-size: 12px;")
         top_layout.addWidget(separator)
 
-        # Баланс портфеля
+        self.btn_refresh = QtWidgets.QPushButton("🔄 Обновить данные счёта")
+        self.btn_refresh.setMinimumHeight(26)
+        self.btn_refresh.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 6px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.btn_refresh.clicked.connect(self._refresh_account)
+        top_layout.addWidget(self.btn_refresh)
+
+        separator2 = QtWidgets.QLabel("│")
+        separator2.setStyleSheet("color: #999; font-size: 12px;")
+        top_layout.addWidget(separator2)
+
         balance_widget = QtWidgets.QWidget()
         balance_layout = QtWidgets.QHBoxLayout(balance_widget)
         balance_layout.setContentsMargins(0, 0, 0, 0)
         balance_layout.setSpacing(12)
 
-        self.lbl_total = QtWidgets.QLabel("<b>Всего:</b> -")
+        self.lbl_total = QtWidgets.QLabel("**Всего:** -")
         self.lbl_total.setStyleSheet("font-size: 12px; color: #2e7d32;")
         balance_layout.addWidget(self.lbl_total)
 
@@ -254,11 +258,11 @@ class RealAccountTab(QtWidgets.QWidget):
         top_layout.addWidget(balance_widget)
         main_layout.addWidget(top_panel)
 
-        # Сплиттер: избранное слева, история справа
+        # Сплиттер: избранное + торговая панель слева, история справа
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         splitter.setHandleWidth(6)
 
-        # Левая панель - избранное
+        # Левая панель - избранное + торговая панель
         left_widget = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -267,7 +271,6 @@ class RealAccountTab(QtWidgets.QWidget):
         # Заголовок + кнопка обновления
         left_header_layout = QtWidgets.QHBoxLayout()
         left_header_layout.setSpacing(4)
-
         left_header = QtWidgets.QLabel("📌 Избранное")
         left_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         left_header_layout.addWidget(left_header)
@@ -291,7 +294,6 @@ class RealAccountTab(QtWidgets.QWidget):
         """)
         self.btn_refresh_prices.clicked.connect(self._on_refresh_prices_clicked)
         left_header_layout.addWidget(self.btn_refresh_prices)
-
         left_layout.addLayout(left_header_layout)
 
         self.fav_table = QtWidgets.QTableWidget(0, 4)
@@ -301,24 +303,120 @@ class RealAccountTab(QtWidgets.QWidget):
         self.fav_table.verticalHeader().setVisible(False)
         self.fav_table.setAlternatingRowColors(True)
 
-        # Последний столбец растягивается, остальные можно менять вручную
         header = self.fav_table.horizontalHeader()
-        header.setSectionResizeMode(3,
-                                    QtWidgets.QHeaderView.ResizeMode.Stretch)  # Стоимость - следует за размером панели
-
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
         left_layout.addWidget(self.fav_table)
 
-        # ===== Правая панель - заявки и история сделок со сплиттером =====
+        # ===== ТОРГОВАЯ ПАНЕЛЬ =====
+        # Заголовок "Торговля"
+        trading_header = QtWidgets.QLabel("📈 Торговля")
+        trading_header.setStyleSheet(
+            "font-weight: bold; font-size: 12px; padding: 4px; background: #e3f2fd; border-radius: 3px;")
+        left_layout.addWidget(trading_header)
 
-        # Виджет для заявок
+        # Информация об инструменте
+        self.trading_instrument_label = QtWidgets.QLabel("Инструмент: не выбран")
+        self.trading_instrument_label.setStyleSheet("font-size: 10px; color: #666; padding: 4px;")
+        self.trading_instrument_label.setWordWrap(True)
+        left_layout.addWidget(self.trading_instrument_label)
+
+        # Панель управления: лоты и цена в одну строку
+        trading_params_layout = QtWidgets.QHBoxLayout()
+        trading_params_layout.setSpacing(4)
+
+        trading_params_layout.addWidget(QtWidgets.QLabel("Лотов:"))
+        self.trading_lots_input = QtWidgets.QLineEdit("1")
+        self.trading_lots_input.setMaximumWidth(60)
+        self.trading_lots_input.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.trading_lots_input.setValidator(QtGui.QIntValidator(1, 999999))
+        trading_params_layout.addWidget(self.trading_lots_input)
+
+        trading_params_layout.addWidget(QtWidgets.QLabel("Цена:"))
+        self.trading_price_input = QtWidgets.QLineEdit("")
+        self.trading_price_input.setMaximumWidth(100)
+        self.trading_price_input.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        price_validator = QtGui.QDoubleValidator(0.01, 999999.99, 2)
+        self.trading_price_input.setValidator(price_validator)
+        trading_params_layout.addWidget(self.trading_price_input)
+
+        trading_params_layout.addStretch()
+        left_layout.addLayout(trading_params_layout)
+
+        # Кнопки BUY/SELL в одну строку
+        trading_buttons_layout = QtWidgets.QHBoxLayout()
+        trading_buttons_layout.setSpacing(4)
+
+        self.btn_buy_limit = QtWidgets.QPushButton("🟢 BUY LIMIT")
+        self.btn_buy_limit.setMinimumHeight(30)
+        self.btn_buy_limit.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """)
+        self.btn_buy_limit.clicked.connect(self._on_buy_clicked_from_panel)
+        trading_buttons_layout.addWidget(self.btn_buy_limit)
+
+        self.btn_sell_limit = QtWidgets.QPushButton("🔴 SELL LIMIT")
+        self.btn_sell_limit.setMinimumHeight(30)
+        self.btn_sell_limit.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """)
+        self.btn_sell_limit.clicked.connect(self._on_sell_clicked_from_panel)
+        trading_buttons_layout.addWidget(self.btn_sell_limit)
+
+        left_layout.addLayout(trading_buttons_layout)
+
+        # Результат операции (копируемый текст)
+        self.trading_result_text = QtWidgets.QTextEdit("")
+        self.trading_result_text.setMaximumHeight(60)
+        self.trading_result_text.setReadOnly(True)
+        self.trading_result_text.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextSelectableByMouse |
+            QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.trading_result_text.setStyleSheet("""
+            QTextEdit {
+                font-size: 10px;
+                padding: 4px;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                background-color: #f9f9f9;
+            }
+        """)
+        self.trading_result_text.setToolTip("Текст можно выделить и скопировать (Ctrl+C)")
+        left_layout.addWidget(self.trading_result_text)
+
+        # ===== Правая панель - заявки и история сделок =====
         orders_widget = QtWidgets.QWidget()
         orders_layout = QtWidgets.QVBoxLayout(orders_widget)
         orders_layout.setContentsMargins(0, 0, 0, 0)
         orders_layout.setSpacing(2)
 
-        # Заголовок заявок + кнопка + статус в одну строку
         orders_header_layout = QtWidgets.QHBoxLayout()
-
         orders_header = QtWidgets.QLabel("📋 Активные заявки")
         orders_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         orders_header_layout.addWidget(orders_header)
@@ -346,10 +444,8 @@ class RealAccountTab(QtWidgets.QWidget):
         self.lbl_orders_status.setStyleSheet("color: #666; font-size: 10px;")
         orders_header_layout.addWidget(self.lbl_orders_status)
         orders_header_layout.addStretch()
-
         orders_layout.addLayout(orders_header_layout)
 
-        # Таблица заявок
         self.orders_table = QtWidgets.QTableWidget(0, 7)
         self.orders_table.setHorizontalHeaderLabels(["Дата", "Тип", "Ticker", "Статус", "Кол-во", "Цена", "Исполнено"])
         self.orders_table.horizontalHeader().setStretchLastSection(True)
@@ -357,27 +453,21 @@ class RealAccountTab(QtWidgets.QWidget):
         self.orders_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.orders_table.verticalHeader().setVisible(False)
         self.orders_table.setAlternatingRowColors(True)
-        # Высота регулируется сплиттером
         orders_layout.addWidget(self.orders_table)
 
-        # Виджет для истории
         history_widget = QtWidgets.QWidget()
         history_layout = QtWidgets.QVBoxLayout(history_widget)
         history_layout.setContentsMargins(0, 0, 0, 0)
         history_layout.setSpacing(2)
 
-        # Заголовок истории + кнопки в одну строку
         history_header_layout = QtWidgets.QHBoxLayout()
-
         history_header = QtWidgets.QLabel("📊 История сделок")
         history_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         history_header_layout.addWidget(history_header)
-
         history_header_layout.addStretch()
 
         self.btn_clear_cache = QtWidgets.QPushButton("🗑 Очистить кэш")
         self.btn_clear_cache.setMinimumHeight(22)
-        self.btn_clear_cache.setToolTip("Очистить кэш истории и загрузить заново с тикерами")
         self.btn_clear_cache.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
@@ -411,107 +501,65 @@ class RealAccountTab(QtWidgets.QWidget):
         """)
         self.btn_refresh_history.clicked.connect(self._refresh_history_for_selected)
         history_header_layout.addWidget(self.btn_refresh_history)
-
         history_layout.addLayout(history_header_layout)
 
-        # Таблица истории
         self.history_table = QtWidgets.QTableWidget(0, 7)
         self.history_table.setHorizontalHeaderLabels(["Дата", "Тип", "Ticker", "Кол-во", "Цена", "Сумма", "Валюта"])
         self.history_table.horizontalHeader().setStretchLastSection(True)
         self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setAlternatingRowColors(True)
-        self.history_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         history_layout.addWidget(self.history_table)
 
-        # ===== Сплиттер между заявками и историей =====
         right_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         right_splitter.addWidget(orders_widget)
         right_splitter.addWidget(history_widget)
         right_splitter.setHandleWidth(6)
-        right_splitter.setStretchFactor(0, 1)  # Заявки
-        right_splitter.setStretchFactor(1, 2)  # История
-        right_splitter.setSizes([200, 400])  # Начальные размеры
+        right_splitter.setStretchFactor(0, 1)
+        right_splitter.setStretchFactor(1, 2)
+        right_splitter.setSizes([200, 400])
 
-        # ===== Основная правая панель =====
         right_widget = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
 
-        # Фильтр по инструменту (над обеими таблицами)
         filter_panel = QtWidgets.QWidget()
         filter_panel.setStyleSheet("background: #e8f5e9; padding: 4px; border-radius: 3px;")
         filter_layout = QtWidgets.QHBoxLayout(filter_panel)
         filter_layout.setContentsMargins(4, 2, 4, 2)
 
-        # Надпись о выбранном инструменте
         self.lbl_filter = QtWidgets.QLabel("Выберите инструмент в таблице слева")
         self.lbl_filter.setStyleSheet("color: #2e7d32; font-size: 10px; font-weight: bold;")
-        filter_layout.addWidget(self.lbl_filter, 1)  # Растягивается
+        filter_layout.addWidget(self.lbl_filter, 1)
 
-        # Чекбокс "только выбранное"
         self.chk_filter_enabled = QtWidgets.QCheckBox("только выбранное")
-        self.chk_filter_enabled.setChecked(True)  # По умолчанию включен
+        self.chk_filter_enabled.setChecked(True)
         self.chk_filter_enabled.setStyleSheet("font-size: 10px; font-weight: bold;")
-        self.chk_filter_enabled.setToolTip("Включите чтобы показывать данные только для выбранного инструмента")
         self.chk_filter_enabled.stateChanged.connect(self._on_filter_changed)
         filter_layout.addWidget(self.chk_filter_enabled)
-
         right_layout.addWidget(filter_panel)
-        right_layout.addWidget(right_splitter, 1)  # Растягивается
+        right_layout.addWidget(right_splitter, 1)
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
-        splitter.setSizes([280, 720])  # Уменьшили с 350 до 280 (-20%)
-
+        splitter.setSizes([280, 720])
         main_layout.addWidget(splitter, 1)
 
-        # Нижняя панель
-        bottom_panel = QtWidgets.QWidget()
-        bottom_layout = QtWidgets.QHBoxLayout(bottom_panel)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.btn_refresh = QtWidgets.QPushButton("🔄 Обновить данные счёта")
-        self.btn_refresh.setMinimumHeight(30)
-        self.btn_refresh.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 6px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        bottom_layout.addWidget(self.btn_refresh)
-        bottom_layout.addStretch()
-
+        # Статус бар внизу
         self.lbl_status = QtWidgets.QLabel("")
         self.lbl_status.setStyleSheet("color: #666; font-size: 10px;")
-        bottom_layout.addWidget(self.lbl_status)
+        main_layout.addWidget(self.lbl_status)
 
-        main_layout.addWidget(bottom_panel)
-
-        # Подключения
-        self.btn_refresh.clicked.connect(self._refresh_account)
         self.fav_table.cellClicked.connect(self._on_fav_selected)
 
-        # Загружаем избранное
         self._favorites = load_favorites(FAVORITES_FILE)
-
-        # Автозагрузка
         self._refresh_account()
 
     def _refresh_account(self):
         """Обновить данные счёта."""
-        # Проверяем существование потока через hasattr
         if hasattr(self, '_account_thread') and self._account_thread and self._account_thread.isRunning():
             return
 
@@ -531,7 +579,6 @@ class RealAccountTab(QtWidgets.QWidget):
         self._account_worker.finished.connect(self._account_worker.deleteLater)
         self._account_thread.finished.connect(self._account_thread.deleteLater)
         self._account_thread.finished.connect(self._on_account_finished)
-
         self._account_thread.start()
 
     def _on_account_loaded(self, data: dict):
@@ -540,111 +587,77 @@ class RealAccountTab(QtWidgets.QWidget):
         portfolio = data.get("portfolio")
 
         if self._account_info:
-            self.lbl_account_info.setText(
-                f"💼 {self._account_info.account_id} ({self._account_info.account_type})"
-            )
+            self.lbl_account_info.setText(f"💼 {self._account_info.account_id} ({self._account_info.account_type})")
+
+            if self.app_context:
+                self.app_context.real_account_id = self._account_info.account_id
+                self.app_context.update_portfolio(self._portfolio_positions)
+                print(f"[RealAccountTab] Saved real_account_id and {len(self._portfolio_positions)} positions")
 
         if portfolio:
             self._portfolio_positions = portfolio.positions
-
-            # Сохраняем account_id и позиции в app_context
-            try:
-                from app.app_context import get_app_context
-                ctx = get_app_context()
-                ctx.real_account_id = self._account_info.account_id
-                ctx.update_portfolio(self._portfolio_positions)
-                print(f"[RealAccountTab] Saved real_account_id and {len(self._portfolio_positions)} positions")
-            except Exception as e:
-                print(f"[RealAccountTab] Failed to save to context: {e}")
-
-            # Обновляем баланс
             total = portfolio.total_amount_portfolio
-            self.lbl_total.setText(f"<b>Всего:</b> {total:,.2f} ₽")
+            self.lbl_total.setText(f"**Всего:** {total:,.2f} ₽")
             self.lbl_shares.setText(f"Акции: {portfolio.total_amount_shares:,.0f} ₽")
             self.lbl_bonds.setText(f"Обл: {portfolio.total_amount_bonds:,.0f} ₽")
             self.lbl_etf.setText(f"ETF: {portfolio.total_amount_etf:,.0f} ₽")
             self.lbl_currencies.setText(f"Валюта: {portfolio.total_amount_currencies:,.0f} ₽")
-
-            # Обновляем таблицу избранного
             self._update_favorites_table()
-
-        # Загружаем заявки
-        self._refresh_orders()
 
     def _on_account_finished(self):
         self.btn_refresh.setEnabled(True)
         self.btn_refresh.setText("🔄 Обновить данные счёта")
-        # Очищаем ссылки на поток
         self._account_thread = None
         self._account_worker = None
 
     def _update_favorites_table(self):
-        """Обновить таблицу избранного с позициями реального счёта."""
+        """Обновить таблицу избранного."""
         self.fav_table.setRowCount(0)
-
-        # Создаём словарь FIGI -> позиция
         positions_by_figi = {pos.figi: pos for pos in self._portfolio_positions}
 
         for info in self._favorites.values():
             r = self.fav_table.rowCount()
             self.fav_table.insertRow(r)
 
-            # Находим позицию по FIGI
             pos = positions_by_figi.get(info.figi)
             qty = pos.quantity if pos else 0.0
 
-            # Получаем текущую цену из контекста (если доступно)
             current_price = 0.0
             if self.app_context and info.figi:
                 current_price = self.app_context.get_quote(info.figi) or 0.0
-
-            # Если цены из контекста нет, пробуем QuotesHub
-            if not current_price and self.quotes_hub and info:
-                current_price = self.quotes_hub.get_price(info) or 0.0
-
-            # Если цены нет, используем цену из портфеля
             if not current_price and pos:
                 current_price = pos.current_price or pos.position_avg_price or 0.0
 
             value = qty * current_price if current_price else 0.0
 
-            # Столбец "Инструмент" (Ticker + Name в двух строках)
             instrument_widget = QtWidgets.QWidget()
             instrument_widget.setToolTip(f"{info.ticker}\n{info.name or ''}")
             instrument_layout = QtWidgets.QVBoxLayout(instrument_widget)
             instrument_layout.setContentsMargins(4, 2, 4, 2)
             instrument_layout.setSpacing(0)
 
-            # Ticker (жирный, синий)
             ticker_label = QtWidgets.QLabel(info.ticker)
             ticker_label.setStyleSheet("font-weight: bold; color: #1976d2; font-size: 11px;")
-            ticker_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
             instrument_layout.addWidget(ticker_label)
 
-            # Name (обычный, серый)
             name_label = QtWidgets.QLabel(info.name or "-")
             name_label.setStyleSheet("color: #666; font-size: 10px;")
-            name_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
             instrument_layout.addWidget(name_label)
 
-            # Добавляем обработку клика
             instrument_widget.mousePressEvent = lambda e, row=r: self._on_fav_widget_clicked(row)
             ticker_label.mousePressEvent = lambda e, row=r: self._on_fav_widget_clicked(row)
             name_label.mousePressEvent = lambda e, row=r: self._on_fav_widget_clicked(row)
 
             self.fav_table.setCellWidget(r, 0, instrument_widget)
 
-            # Количество
             qty_item = QtWidgets.QTableWidgetItem(f"{qty:,.6f}")
             qty_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.fav_table.setItem(r, 1, qty_item)
 
-            # Цена (текущая рыночная)
             price_item = QtWidgets.QTableWidgetItem(f"{current_price:,.2f}" if current_price else "-")
             price_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.fav_table.setItem(r, 2, price_item)
 
-            # Стоимость
             value_item = QtWidgets.QTableWidgetItem(f"{value:,.2f} ₽" if value else "-")
             value_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             value_item.setForeground(QtGui.QColor("#2e7d32"))
@@ -658,55 +671,60 @@ class RealAccountTab(QtWidgets.QWidget):
         """Обновить цены вручную."""
         if self.quotes_hub:
             self.quotes_hub.request_refresh()
-            self.btn_refresh_prices.setText("⏳ Обновление...")
-            self.btn_refresh_prices.setEnabled(False)
 
     def _on_quotes_updated(self, quotes: dict):
         """Обновление котировок из контекста."""
-        # Обновляем таблицу избранного
         self._update_favorites_table()
-
-        # Возвращаем кнопку в исходное состояние
-        self.btn_refresh_prices.setText("💹 Обновить цены")
-        self.btn_refresh_prices.setEnabled(True)
+        # Цена в торговой панели НЕ обновляется автоматически
+        # Обновляется только при клике на инструменте
 
     def _on_fav_selected(self, row: int, column: int):
-        """При выборе инструмента в избранном - загрузить историю."""
+        """При выборе инструмента в избранном."""
         if row < 0 or row >= self.fav_table.rowCount():
             return
 
-        # Получаем widget из первой ячейки и извлекаем ticker
         instrument_widget = self.fav_table.cellWidget(row, 0)
         if not instrument_widget:
             return
 
-        # Находим ticker label (первый QLabel в layout)
-        ticker = None
         layout = instrument_widget.layout()
         if layout and layout.count() > 0:
             ticker_label = layout.itemAt(0).widget()
             if ticker_label:
                 ticker = ticker_label.text()
+                info = None
+                for fav_info in self._favorites.values():
+                    if fav_info.ticker == ticker:
+                        info = fav_info
+                        break
 
-        if not ticker:
-            return
+                if not info:
+                    self.lbl_filter.setText(f"Инструмент {ticker} не найден в избранном")
+                    return
 
-        # Находим InstrumentInfo по ticker
-        info = None
-        for fav_info in self._favorites.values():
-            if fav_info.ticker == ticker:
-                info = fav_info
-                break
+                self._current_figi = info.figi
+                current_price = self.app_context.get_quote(info.figi) if self.app_context else 0.0
+                if not current_price:
+                    positions_by_figi = {pos.figi: pos for pos in self._portfolio_positions}
+                    pos = positions_by_figi.get(info.figi)
+                    if pos:
+                        current_price = pos.current_price or pos.position_avg_price or 0.0
 
-        if not info:
-            self.lbl_filter.setText(f"Инструмент {ticker} не найден в избранном")
-            return
+                # Устанавливаем цену в торговую панель
+                self.trading_price_input.setText(f"{current_price:.2f}" if current_price else "")
 
-        self._current_figi = info.figi
-        self.lbl_filter.setText(f"📈 {info.ticker} | {info.name}")
+                # Устанавливаем информацию об инструменте
+                self.trading_instrument_label.setText(f"Инструмент: {info.ticker} | {info.name or '-'}")
 
-        # Загружаем историю
-        self._load_history(info.figi)
+                # Очищаем результат
+                self.trading_result_text.setText("")
+
+                filter_state = "включен" if self.chk_filter_enabled.isChecked() else "выключен"
+                self.lbl_filter.setText(f"📈 {info.ticker} | {info.name} (фильтр: {filter_state})")
+
+                if self._all_orders:
+                    self._on_orders_loaded(self._all_orders)
+                self._load_history_from_cache(info.figi)
 
     def _load_history(self, figi: str):
         """Загрузить историю операций для инструмента."""
@@ -714,14 +732,12 @@ class RealAccountTab(QtWidgets.QWidget):
             self.lbl_filter.setText("Сначала загрузите данные счёта")
             return
 
-        # Проверяем, не запущен ли уже поток
         if hasattr(self, '_history_thread') and self._history_thread and self._history_thread.isRunning():
             return
 
         self.history_table.setRowCount(0)
         self.lbl_status.setText(f"⏳ Загрузка истории для {figi}...")
 
-        # Очищаем старые ссылки
         self._history_thread = None
         self._history_worker = None
 
@@ -736,42 +752,31 @@ class RealAccountTab(QtWidgets.QWidget):
         self._history_worker.finished.connect(self._history_worker.deleteLater)
         self._history_thread.finished.connect(self._on_history_thread_finished)
         self._history_thread.finished.connect(self._history_thread.deleteLater)
-
         self._history_thread.start()
 
     def _load_history_from_cache(self, figi: str):
-        """Загрузить историю операций для инструмента из кэша (без сервера)."""
+        """Загрузить историю из кэша."""
         if not self._account_info:
             return
 
-        print(f"[RealAccountTab] Загрузка истории из кэша для {figi}...")
-
-        # Загружаем из кэша
         operations = load_operations_from_cache(self._account_info.account_id, figi)
-
         if operations:
             print(f"[RealAccountTab] Загружено из кэша: {len(operations)} операций")
             self._on_history_loaded(operations)
             self.lbl_status.setText(f"📚 Из кэша: {len(operations)} операций")
         else:
-            # Кэш пустой - показываем пустую таблицу
             self.history_table.setRowCount(0)
-            self.lbl_status.setText(f"📚 Кэш пуст для {figi}. Нажмите 'Обновить' для загрузки.")
-            print(f"[RealAccountTab] Кэш пуст для {figi}")
+            self.lbl_status.setText(f"📚 Кэш пуст для {figi}. Нажмите 'Обновить'.")
 
     def _on_history_thread_finished(self):
-        """Очистка ссылок после завершения потока."""
         self._history_thread = None
         self._history_worker = None
 
     def _on_history_loaded(self, operations: list[Operation]):
         """Обработка загруженной истории."""
-        # Сохраняем все операции для фильтрации
         self._current_operations = operations
-
         self.history_table.setRowCount(0)
 
-        # Фильтруем по выбранному инструменту если выбран и чекбокс включен
         if self._current_figi and self.chk_filter_enabled.isChecked():
             operations = [op for op in operations if op.figi == self._current_figi]
 
@@ -779,11 +784,9 @@ class RealAccountTab(QtWidgets.QWidget):
             r = self.history_table.rowCount()
             self.history_table.insertRow(r)
 
-            # Дата
             date_str = op.date.strftime("%Y-%m-%d %H:%M") if hasattr(op.date, "strftime") else str(op.date)
             self.history_table.setItem(r, 0, QtWidgets.QTableWidgetItem(date_str))
 
-            # Тип операции (обрабатываем и строки, и числа из старого кэша)
             op_type_raw = op.operation_type
             if isinstance(op_type_raw, int):
                 from core.operations_api import OPERATION_TYPE_MAP
@@ -797,65 +800,47 @@ class RealAccountTab(QtWidgets.QWidget):
                 type_item.setForeground(QtGui.QColor("#f44336"))
             elif "sell" in op_type_lower:
                 type_item.setForeground(QtGui.QColor("#4CAF50"))
-            elif "dividend" in op_type_lower or "dividends" in op_type_lower:
+            elif "dividend" in op_type_lower:
                 type_item.setForeground(QtGui.QColor("#2196F3"))
-            elif "commission" in op_type_lower or "tax" in op_type_lower:
+            elif "commission" in op_type_lower:
                 type_item.setForeground(QtGui.QColor("#ff9800"))
             self.history_table.setItem(r, 1, type_item)
 
-            # Ticker
             self.history_table.setItem(r, 2, QtWidgets.QTableWidgetItem(op.ticker or "-"))
 
-            # Количество
             qty_item = QtWidgets.QTableWidgetItem(f"{op.quantity:,.6f}")
             qty_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.history_table.setItem(r, 3, qty_item)
 
-            # Цена
             price_item = QtWidgets.QTableWidgetItem(f"{op.price:,.2f}")
             price_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.history_table.setItem(r, 4, price_item)
 
-            # Сумма
             amount_item = QtWidgets.QTableWidgetItem(f"{op.amount:,.2f}")
             amount_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.history_table.setItem(r, 5, amount_item)
 
-            # Валюта
             self.history_table.setItem(r, 6, QtWidgets.QTableWidgetItem(op.currency))
 
         self.lbl_status.setText(f"✅ Загружено операций: {len(operations)}")
 
     def _on_history_error(self, error: str):
-        """Обработка ошибки загрузки истории."""
         self.lbl_status.setText(f"❌ Ошибка: {error[:50]}...")
         print(f"[RealAccountTab] History error: {error}")
 
     def _refresh_history_for_selected(self):
-        """Обновить историю для выбранного инструмента."""
         if self._current_figi:
             self._load_history(self._current_figi)
         else:
             self.lbl_filter.setText("Сначала выберите инструмент в таблице слева")
 
-    def _clear_cache(self):
-        """Очистить кэш истории."""
-        from core.operations_api import clear_history_cache
-        clear_history_cache()
-        self.lbl_status.setText("🗑 Кэш очищен")
-        QtWidgets.QMessageBox.information(self, "Кэш", "Кэш истории операций очищен")
-
     def _clear_cache_and_reload(self):
-        """Очистить кэш и перезагрузить историю для текущего инструмента."""
         from core.operations_api import clear_history_cache
         clear_history_cache()
-
         if self._current_figi:
             self.lbl_status.setText("🗑 Кэш очищен, загружаем заново...")
             self._load_history(self._current_figi)
-            QtWidgets.QMessageBox.information(self, "Кэш", "Кэш очищен. История загружается заново с тикерами.")
-        else:
-            QtWidgets.QMessageBox.information(self, "Кэш", "Кэш очищен. Выберите инструмент для загрузки истории.")
+        QtWidgets.QMessageBox.information(self, "Кэш", "Кэш очищен.")
 
     def _refresh_orders(self):
         """Обновить заявки."""
@@ -869,7 +854,6 @@ class RealAccountTab(QtWidgets.QWidget):
         self.btn_refresh_orders.setEnabled(False)
         self.lbl_orders_status.setText("⏳ Загрузка заявок...")
 
-        # Очищаем старые ссылки
         self._orders_thread = None
         self._orders_worker = None
 
@@ -884,77 +868,61 @@ class RealAccountTab(QtWidgets.QWidget):
         self._orders_worker.finished.connect(self._orders_worker.deleteLater)
         self._orders_thread.finished.connect(self._orders_thread.deleteLater)
         self._orders_thread.finished.connect(self._on_orders_finished)
-
         self._orders_thread.start()
 
     def _on_filter_changed(self, state):
         """Изменение состояния фильтра."""
-        # Обновляем обе таблицы
         if self._all_orders:
             self._on_orders_loaded(self._all_orders)
-
-        # Если есть загруженная история, обновляем её
         if hasattr(self, '_current_operations') and self._current_operations:
             self._on_history_loaded(self._current_operations)
 
     def _on_orders_loaded(self, orders: list[Order]):
         """Обработка загруженных заявок."""
         self._all_orders = orders
-
         self.orders_table.setRowCount(0)
 
-        # Фильтруем по выбранному инструменту если выбран и чекбокс включен
         if self._current_figi and self.chk_filter_enabled.isChecked():
             orders = [o for o in orders if o.figi == self._current_figi]
+
+        if self._current_figi:
             self.lbl_orders_status.setText(f"📈 {self._current_figi}: {len(orders)} заявок")
         else:
-            if self._current_figi:
-                self.lbl_orders_status.setText(f"✅ Все: {len(orders)} заявок (выбран {self._current_figi})")
-            else:
-                self.lbl_orders_status.setText(f"✅ Заявок: {len(orders)}")
+            self.lbl_orders_status.setText(f"✅ Заявок: {len(orders)}")
 
         for order in orders:
             r = self.orders_table.rowCount()
             self.orders_table.insertRow(r)
 
-            # Дата
             date_str = order.updated.strftime("%Y-%m-%d %H:%M") if order.updated else (
                 order.created.strftime("%Y-%m-%d %H:%M") if order.created else "-")
             self.orders_table.setItem(r, 0, QtWidgets.QTableWidgetItem(date_str))
 
-            # Тип заявки (Buy/Sell)
             order_type = order.order_type if order.order_type else ""
             type_item = QtWidgets.QTableWidgetItem(order_type)
             if "BUY" in order_type:
-                type_item.setForeground(QtGui.QColor("#4CAF50"))  # зелёный для покупки
+                type_item.setForeground(QtGui.QColor("#4CAF50"))
             elif "SELL" in order_type:
-                type_item.setForeground(QtGui.QColor("#f44336"))  # красный для продажи
+                type_item.setForeground(QtGui.QColor("#f44336"))
             self.orders_table.setItem(r, 1, type_item)
 
-            # Ticker
             self.orders_table.setItem(r, 2, QtWidgets.QTableWidgetItem(order.ticker or "-"))
 
-            # Статус
             status_item = QtWidgets.QTableWidgetItem(order.status)
-            if "filled" in order.status.lower() or "executed" in order.status.lower():
-                status_item.setForeground(QtGui.QColor("#4CAF50"))  # зелёный
-            elif "cancelled" in order.status.lower() or "rejected" in order.status.lower():
-                status_item.setForeground(QtGui.QColor("#999"))  # серый
-            elif "partially" in order.status.lower():
-                status_item.setForeground(QtGui.QColor("#ff9800"))  # оранжевый
+            if "filled" in order.status.lower():
+                status_item.setForeground(QtGui.QColor("#4CAF50"))
+            elif "cancelled" in order.status.lower():
+                status_item.setForeground(QtGui.QColor("#999"))
             self.orders_table.setItem(r, 3, status_item)
 
-            # Количество
             qty_item = QtWidgets.QTableWidgetItem(f"{order.lots_requested:,.0f}")
             qty_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.orders_table.setItem(r, 4, qty_item)
 
-            # Цена
             price_item = QtWidgets.QTableWidgetItem(f"{order.price:,.2f}")
             price_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.orders_table.setItem(r, 5, price_item)
 
-            # Исполнено
             exec_item = QtWidgets.QTableWidgetItem(f"{order.lots_executed:,.0f}")
             exec_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             self.orders_table.setItem(r, 6, exec_item)
@@ -962,70 +930,13 @@ class RealAccountTab(QtWidgets.QWidget):
         self.lbl_orders_status.setText(f"✅ Заявок: {len(orders)}")
 
     def _on_orders_error(self, error: str):
-        """Обработка ошибки загрузки заявок."""
         self.lbl_orders_status.setText(f"❌ Ошибка: {error[:50]}...")
         print(f"[RealAccountTab] Orders error: {error}")
 
     def _on_orders_finished(self):
-        """Завершение загрузки заявок."""
         self.btn_refresh_orders.setEnabled(True)
         self._orders_thread = None
         self._orders_worker = None
-
-    def _on_fav_selected(self, row: int, column: int):
-        """При выборе инструмента в избранном - загрузить историю и отфильтровать заявки."""
-        if row < 0 or row >= self.fav_table.rowCount():
-            return
-
-        # Получаем widget из первой ячейки и извлекаем ticker
-        instrument_widget = self.fav_table.cellWidget(row, 0)
-        if not instrument_widget:
-            return
-
-        # Находим ticker label (первый QLabel в layout)
-        ticker = None
-        layout = instrument_widget.layout()
-        if layout and layout.count() > 0:
-            ticker_label = layout.itemAt(0).widget()
-            if ticker_label:
-                ticker = ticker_label.text()
-
-        if not ticker:
-            return
-
-        # Находим InstrumentInfo по ticker
-        info = None
-        for fav_info in self._favorites.values():
-            if fav_info.ticker == ticker:
-                info = fav_info
-                break
-
-        if not info:
-            self.lbl_filter.setText(f"Инструмент {ticker} не найден в избранном")
-            return
-
-        self._current_figi = info.figi
-        filter_state = "включен" if self.chk_filter_enabled.isChecked() else "выключен"
-        self.lbl_filter.setText(f"📈 {info.ticker} | {info.name} (фильтр: {filter_state})")
-
-        # Получаем текущую цену и устанавливаем в торговую панель
-        current_price = self.app_context.get_quote(info.figi) if self.app_context else 0.0
-        if not current_price:
-            # Пытаемся получить из портфеля
-            positions_by_figi = {pos.figi: pos for pos in self._portfolio_positions}
-            pos = positions_by_figi.get(info.figi)
-            if pos:
-                current_price = pos.current_price or pos.position_avg_price or 0.0
-
-        if hasattr(self, 'trading_panel'):
-            self.trading_panel.set_instrument(info, current_price)
-
-        # Обновляем отображение заявок с учётом фильтра
-        if self._all_orders:
-            self._on_orders_loaded(self._all_orders)
-
-        # Загружаем историю из кэша (быстро, без сервера)
-        self._load_history_from_cache(info.figi)
 
     def _on_error(self, error: str):
         """Обработка ошибки."""
@@ -1033,18 +944,15 @@ class RealAccountTab(QtWidgets.QWidget):
 
     def _show_error_in_text_box(self, error: str):
         """Показать ошибку в текстовом поле."""
-        # Очищаем текущий layout
         layout = self.layout()
         if layout is None:
             layout = QtWidgets.QVBoxLayout(self)
             self.setLayout(layout)
 
-        # Создаём заголовок
         error_header = QtWidgets.QLabel("❌ Ошибка загрузки реального счёта:")
         error_header.setStyleSheet("font-weight: bold; font-size: 14px; color: red;")
         layout.insertWidget(0, error_header)
 
-        # Создаём текстовое поле с ошибкой
         error_text = QtWidgets.QTextEdit()
         error_text.setReadOnly(True)
         error_text.setStyleSheet("""
@@ -1061,7 +969,6 @@ class RealAccountTab(QtWidgets.QWidget):
         error_text.setMinimumHeight(300)
         layout.insertWidget(1, error_text)
 
-        # Кнопка копирования
         copy_btn = QtWidgets.QPushButton("📋 Копировать ошибку")
         copy_btn.clicked.connect(lambda: QtWidgets.QApplication.clipboard().setText(error_text.toPlainText()))
         layout.insertWidget(2, copy_btn)
@@ -1072,21 +979,76 @@ class RealAccountTab(QtWidgets.QWidget):
         print(error)
         print("=" * 60 + "\n")
 
-    def _on_buy_clicked(self, instrument: InstrumentInfo, lots: int, price: float):
+    def _on_buy_clicked_from_panel(self):
+        """Обработка клика кнопки BUY."""
+        if not self._current_figi:
+            self.trading_result_text.setText("❌ Выберите инструмент")
+            return
+
+        try:
+            lots = int(self.trading_lots_input.text().strip())
+            price = float(self.trading_price_input.text().strip().replace(",", "."))
+
+            if lots <= 0 or price <= 0:
+                raise ValueError()
+
+            info = None
+            for fav_info in self._favorites.values():
+                if fav_info.figi == self._current_figi:
+                    info = fav_info
+                    break
+
+            if not info:
+                self.trading_result_text.setText("❌ Инструмент не найден")
+                return
+
+            self._execute_buy_order(info, lots, price)
+        except ValueError:
+            self.trading_result_text.setText("❌ Проверьте значения лотов и цены")
+
+    def _on_sell_clicked_from_panel(self):
+        """Обработка клика кнопки SELL."""
+        if not self._current_figi:
+            self.trading_result_text.setText("❌ Выберите инструмент")
+            return
+
+        try:
+            lots = int(self.trading_lots_input.text().strip())
+            price = float(self.trading_price_input.text().strip().replace(",", "."))
+
+            if lots <= 0 or price <= 0:
+                raise ValueError()
+
+            info = None
+            for fav_info in self._favorites.values():
+                if fav_info.figi == self._current_figi:
+                    info = fav_info
+                    break
+
+            if not info:
+                self.trading_result_text.setText("❌ Инструмент не найден")
+                return
+
+            self._execute_sell_order(info, lots, price)
+        except ValueError:
+            self.trading_result_text.setText("❌ Проверьте значения лотов и цены")
+
+    def _execute_buy_order(self, instrument: InstrumentInfo, lots: int, price: float):
         """Выставить заявку на покупку."""
         if not self.app_context:
-            self.trading_panel.set_result(False, "Нет контекста приложения")
+            self.trading_result_text.setText("❌ Нет контекста приложения")
             return
 
-        token = self.app_context.get_current_token()
-        account_id = self.app_context.account_id
-
-        if not token or not account_id:
-            self.trading_panel.set_result(False, "Нет токена или account_id")
+        account_id = self.app_context.real_account_id
+        if not REAL_TOKEN or not account_id:
+            self.trading_result_text.setText("❌ Нет токена или account_id")
             return
+
+        self.trading_result_text.setText(f"⏳ Выставление заявки на покупку {lots} лотов по {price:.2f}...")
+        self.trading_result_text.setStyleSheet("color: #1976d2;")
 
         result = post_order(
-            token=token,
+            token=REAL_TOKEN,
             account_id=account_id,
             figi=instrument.figi,
             quantity=lots,
@@ -1095,27 +1057,30 @@ class RealAccountTab(QtWidgets.QWidget):
         )
 
         if result.success:
-            self.trading_panel.set_result(True, f"Заявка {result.order_id} выставлена")
-            # Обновляем список заявок
+            self.trading_result_text.setText(f"✅ Заявка {result.order_id} выставлена")
+            self.trading_result_text.setStyleSheet("color: #4CAF50;")
             self._refresh_orders()
         else:
-            self.trading_panel.set_result(False, result.error or result.message)
+            error_msg = result.error or result.message or "Неизвестная ошибка"
+            self.trading_result_text.setText(f"❌ Ошибка: {error_msg}")
+            self.trading_result_text.setStyleSheet("color: #f44336;")
 
-    def _on_sell_clicked(self, instrument: InstrumentInfo, lots: int, price: float):
+    def _execute_sell_order(self, instrument: InstrumentInfo, lots: int, price: float):
         """Выставить заявку на продажу."""
         if not self.app_context:
-            self.trading_panel.set_result(False, "Нет контекста приложения")
+            self.trading_result_text.setText("❌ Нет контекста приложения")
             return
 
-        token = self.app_context.get_current_token()
-        account_id = self.app_context.account_id
-
-        if not token or not account_id:
-            self.trading_panel.set_result(False, "Нет токена или account_id")
+        account_id = self.app_context.real_account_id
+        if not REAL_TOKEN or not account_id:
+            self.trading_result_text.setText("❌ Нет токена или account_id")
             return
+
+        self.trading_result_text.setText(f"⏳ Выставление заявки на продажу {lots} лотов по {price:.2f}...")
+        self.trading_result_text.setStyleSheet("color: #ff9800;")
 
         result = post_order(
-            token=token,
+            token=REAL_TOKEN,
             account_id=account_id,
             figi=instrument.figi,
             quantity=lots,
@@ -1124,8 +1089,10 @@ class RealAccountTab(QtWidgets.QWidget):
         )
 
         if result.success:
-            self.trading_panel.set_result(True, f"Заявка {result.order_id} выставлена")
-            # Обновляем список заявок
+            self.trading_result_text.setText(f"✅ Заявка {result.order_id} выставлена")
+            self.trading_result_text.setStyleSheet("color: #4CAF50;")
             self._refresh_orders()
         else:
-            self.trading_panel.set_result(False, result.error or result.message)
+            error_msg = result.error or result.message or "Неизвестная ошибка"
+            self.trading_result_text.setText(f"❌ Ошибка: {error_msg}")
+            self.trading_result_text.setStyleSheet("color: #f44336;")
