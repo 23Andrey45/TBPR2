@@ -83,27 +83,17 @@ class RealAccountTab(QtWidgets.QWidget):
         top_layout.setSpacing(15)
 
         self.lbl_account_info = QtWidgets.QLabel("Загрузка...")
-        self.lbl_account_info.setStyleSheet("font-weight: bold; font-size: 12px;")
         top_layout.addWidget(self.lbl_account_info, 1)
 
         separator = QtWidgets.QLabel("│")
-        separator.setStyleSheet("color: #999; font-size: 12px;")
         top_layout.addWidget(separator)
 
         self.btn_refresh = QtWidgets.QPushButton("🔄 Обновить данные счёта")
         self.btn_refresh.setMinimumHeight(26)
-        self.btn_refresh.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50; color: white; border: none;
-                padding: 6px 16px; border-radius: 4px; font-weight: bold; font-size: 11px;
-            }
-            QPushButton:hover { background-color: #45a049; }
-        """)
         self.btn_refresh.clicked.connect(self._refresh_account)
         top_layout.addWidget(self.btn_refresh)
 
         separator2 = QtWidgets.QLabel("│")
-        separator2.setStyleSheet("color: #999; font-size: 12px;")
         top_layout.addWidget(separator2)
 
         balance_widget = QtWidgets.QWidget()
@@ -112,23 +102,18 @@ class RealAccountTab(QtWidgets.QWidget):
         balance_layout.setSpacing(12)
 
         self.lbl_total = QtWidgets.QLabel("**Всего:** -")
-        self.lbl_total.setStyleSheet("font-size: 12px; color: #2e7d32;")
         balance_layout.addWidget(self.lbl_total)
 
         self.lbl_shares = QtWidgets.QLabel("Акции: -")
-        self.lbl_shares.setStyleSheet("font-size: 11px;")
         balance_layout.addWidget(self.lbl_shares)
 
         self.lbl_bonds = QtWidgets.QLabel("Обл: -")
-        self.lbl_bonds.setStyleSheet("font-size: 11px;")
         balance_layout.addWidget(self.lbl_bonds)
 
         self.lbl_etf = QtWidgets.QLabel("ETF: -")
-        self.lbl_etf.setStyleSheet("font-size: 11px;")
         balance_layout.addWidget(self.lbl_etf)
 
         self.lbl_currencies = QtWidgets.QLabel("Валюта: -")
-        self.lbl_currencies.setStyleSheet("font-size: 11px;")
         balance_layout.addWidget(self.lbl_currencies)
 
         balance_layout.addStretch()
@@ -147,17 +132,11 @@ class RealAccountTab(QtWidgets.QWidget):
 
         left_header_layout = QtWidgets.QHBoxLayout()
         left_header = QtWidgets.QLabel("📌 Избранное")
-        left_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         left_header_layout.addWidget(left_header)
         left_header_layout.addStretch()
 
         self.btn_refresh_prices = QtWidgets.QPushButton("💹 Обновить цены")
         self.btn_refresh_prices.setMinimumHeight(22)
-        self.btn_refresh_prices.setStyleSheet("""
-            QPushButton { background-color: #4CAF50; color: white; border: none;
-                padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }
-            QPushButton:hover { background-color: #45a049; }
-        """)
         self.btn_refresh_prices.clicked.connect(self._on_refresh_prices_clicked)
         left_header_layout.addWidget(self.btn_refresh_prices)
         left_layout.addLayout(left_header_layout)
@@ -173,12 +152,9 @@ class RealAccountTab(QtWidgets.QWidget):
 
         # Торговая панель
         trading_header = QtWidgets.QLabel("📈 Торговля")
-        trading_header.setStyleSheet(
-            "font-weight: bold; font-size: 12px; padding: 4px; background: #e3f2fd; border-radius: 3px;")
         left_layout.addWidget(trading_header)
 
         self.trading_instrument_label = QtWidgets.QLabel("Инструмент: не выбран")
-        self.trading_instrument_label.setStyleSheet("font-size: 10px; color: #666; padding: 4px;")
         self.trading_instrument_label.setWordWrap(True)
         left_layout.addWidget(self.trading_instrument_label)
 
@@ -205,23 +181,11 @@ class RealAccountTab(QtWidgets.QWidget):
 
         self.btn_buy_limit = QtWidgets.QPushButton("🟢 BUY LIMIT")
         self.btn_buy_limit.setMinimumHeight(30)
-        self.btn_buy_limit.setStyleSheet("""
-            QPushButton { background-color: #4CAF50; color: white; border: none;
-                border-radius: 4px; font-weight: bold; font-size: 11px; }
-            QPushButton:hover { background-color: #45a049; }
-            QPushButton:disabled { background-color: #ccc; }
-        """)
         self.btn_buy_limit.clicked.connect(self._on_buy_clicked_from_panel)
         trading_buttons_layout.addWidget(self.btn_buy_limit)
 
         self.btn_sell_limit = QtWidgets.QPushButton("🔴 SELL LIMIT")
         self.btn_sell_limit.setMinimumHeight(30)
-        self.btn_sell_limit.setStyleSheet("""
-            QPushButton { background-color: #f44336; color: white; border: none;
-                border-radius: 4px; font-weight: bold; font-size: 11px; }
-            QPushButton:hover { background-color: #d32f2f; }
-            QPushButton:disabled { background-color: #ccc; }
-        """)
         self.btn_sell_limit.clicked.connect(self._on_sell_clicked_from_panel)
         trading_buttons_layout.addWidget(self.btn_sell_limit)
         left_layout.addLayout(trading_buttons_layout)
@@ -233,8 +197,6 @@ class RealAccountTab(QtWidgets.QWidget):
             QtCore.Qt.TextInteractionFlag.TextSelectableByMouse |
             QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self.trading_result_text.setStyleSheet(
-            "font-size: 10px; padding: 4px; border: 1px solid #ddd; border-radius: 3px; background-color: #f9f9f9;")
         left_layout.addWidget(self.trading_result_text)
 
         # Правая панель
@@ -244,17 +206,14 @@ class RealAccountTab(QtWidgets.QWidget):
         right_layout.setSpacing(4)
 
         filter_panel = QtWidgets.QWidget()
-        filter_panel.setStyleSheet("background: #e8f5e9; padding: 4px; border-radius: 3px;")
         filter_layout = QtWidgets.QHBoxLayout(filter_panel)
         filter_layout.setContentsMargins(4, 2, 4, 2)
 
         self.lbl_filter = QtWidgets.QLabel("Выберите инструмент в таблице слева")
-        self.lbl_filter.setStyleSheet("color: #2e7d32; font-size: 10px; font-weight: bold;")
         filter_layout.addWidget(self.lbl_filter, 1)
 
         self.chk_filter_enabled = QtWidgets.QCheckBox("только выбранное")
         self.chk_filter_enabled.setChecked(True)
-        self.chk_filter_enabled.setStyleSheet("font-size: 10px; font-weight: bold;")
         self.chk_filter_enabled.stateChanged.connect(self._on_filter_changed)
         filter_layout.addWidget(self.chk_filter_enabled)
         right_layout.addWidget(filter_panel)
@@ -262,7 +221,6 @@ class RealAccountTab(QtWidgets.QWidget):
         # План заявок (без рамки, как у других таблиц)
         plan_header_layout = QtWidgets.QHBoxLayout()
         plan_header = QtWidgets.QLabel("📋 План заявок")
-        plan_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         plan_header_layout.addWidget(plan_header)
         plan_header_layout.addStretch()
         right_layout.addLayout(plan_header_layout)
@@ -275,10 +233,9 @@ class RealAccountTab(QtWidgets.QWidget):
         self.plan_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.plan_table.setAlternatingRowColors(True)
         self.plan_table.setMinimumHeight(100)
-        self.plan_table.setMaximumHeight(160)
         self.plan_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.plan_table.verticalHeader().setVisible(False)
-        self.plan_table.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.plan_table.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
 
         # Инициализация контроллера плана
         self.plan_controller = PlanController(
@@ -290,28 +247,21 @@ class RealAccountTab(QtWidgets.QWidget):
 
         # Активные заявки
         orders_widget = QtWidgets.QWidget()
-        orders_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        orders_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
         orders_layout = QtWidgets.QVBoxLayout(orders_widget)
         orders_layout.setContentsMargins(0, 0, 0, 0)
         orders_layout.setSpacing(2)
 
         orders_header_layout = QtWidgets.QHBoxLayout()
         orders_header = QtWidgets.QLabel("📋 Активные заявки")
-        orders_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         orders_header_layout.addWidget(orders_header)
 
         self.btn_refresh_orders = QtWidgets.QPushButton("🔄 Обновить")
         self.btn_refresh_orders.setMinimumHeight(22)
-        self.btn_refresh_orders.setStyleSheet("""
-            QPushButton { background-color: #1976D2; color: white; border: none;
-                padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }
-            QPushButton:hover { background-color: #1565C0; }
-        """)
         self.btn_refresh_orders.clicked.connect(self._refresh_orders)
         orders_header_layout.addWidget(self.btn_refresh_orders)
 
         self.lbl_orders_status = QtWidgets.QLabel("Заявок: 0")
-        self.lbl_orders_status.setStyleSheet("color: #666; font-size: 10px;")
         orders_header_layout.addWidget(self.lbl_orders_status)
         orders_header_layout.addStretch()
         orders_layout.addLayout(orders_header_layout)
@@ -329,9 +279,10 @@ class RealAccountTab(QtWidgets.QWidget):
         top_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         top_splitter.addWidget(self.plan_table)
         top_splitter.addWidget(orders_widget)
+        top_splitter.setChildrenCollapsible(False)
         top_splitter.setHandleWidth(6)
-        top_splitter.setCollapsible(0, False)  # План нельзя свернуть
-        top_splitter.setCollapsible(1, False)  # Заявки нельзя свернуть
+        top_splitter.setCollapsible(0, False)
+        top_splitter.setCollapsible(1, False)
         top_splitter.setStretchFactor(0, 1)
         top_splitter.setStretchFactor(1, 1)
         top_splitter.setSizes([150, 200])
@@ -343,27 +294,16 @@ class RealAccountTab(QtWidgets.QWidget):
 
         history_header_layout = QtWidgets.QHBoxLayout()
         history_header = QtWidgets.QLabel("📊 История сделок")
-        history_header.setStyleSheet("font-weight: bold; font-size: 11px; padding: 4px;")
         history_header_layout.addWidget(history_header)
         history_header_layout.addStretch()
 
         self.btn_clear_cache = QtWidgets.QPushButton("🗑 Очистить кэш")
         self.btn_clear_cache.setMinimumHeight(22)
-        self.btn_clear_cache.setStyleSheet("""
-            QPushButton { background-color: #f44336; color: white; border: none;
-                padding: 2px 6px; border-radius: 3px; font-size: 9px; }
-            QPushButton:hover { background-color: #d32f2f; }
-        """)
         self.btn_clear_cache.clicked.connect(self._clear_cache_and_reload)
         history_header_layout.addWidget(self.btn_clear_cache)
 
         self.btn_refresh_history = QtWidgets.QPushButton("🔄 Обновить")
         self.btn_refresh_history.setMinimumHeight(22)
-        self.btn_refresh_history.setStyleSheet("""
-            QPushButton { background-color: #2196F3; color: white; border: none;
-                padding: 2px 6px; border-radius: 3px; font-size: 9px; }
-            QPushButton:hover { background-color: #1976D2; }
-        """)
         self.btn_refresh_history.clicked.connect(self._refresh_history_for_selected)
         history_header_layout.addWidget(self.btn_refresh_history)
         history_layout.addLayout(history_header_layout)
@@ -379,9 +319,10 @@ class RealAccountTab(QtWidgets.QWidget):
         right_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         right_splitter.addWidget(top_splitter)
         right_splitter.addWidget(history_widget)
+        right_splitter.setChildrenCollapsible(False)
         right_splitter.setHandleWidth(6)
-        right_splitter.setCollapsible(0, False)  # top_splitter нельзя свернуть
-        right_splitter.setCollapsible(1, False)  # history нельзя свернуть
+        right_splitter.setCollapsible(0, False)
+        right_splitter.setCollapsible(1, False)
         right_splitter.setStretchFactor(0, 1)
         right_splitter.setStretchFactor(1, 1)
         right_splitter.setSizes([350, 200])
@@ -396,7 +337,6 @@ class RealAccountTab(QtWidgets.QWidget):
         main_layout.addWidget(splitter, 1)
 
         self.lbl_status = QtWidgets.QLabel("")
-        self.lbl_status.setStyleSheet("color: #666; font-size: 10px;")
         main_layout.addWidget(self.lbl_status)
 
         self.fav_table.cellClicked.connect(self._on_fav_selected)
@@ -501,11 +441,9 @@ class RealAccountTab(QtWidgets.QWidget):
             instrument_layout.setSpacing(0)
 
             ticker_label = QtWidgets.QLabel(info.ticker)
-            ticker_label.setStyleSheet("font-weight: bold; color: #1976d2; font-size: 11px;")
             instrument_layout.addWidget(ticker_label)
 
             name_label = QtWidgets.QLabel(info.name or "-")
-            name_label.setStyleSheet("color: #666; font-size: 10px;")
             instrument_layout.addWidget(name_label)
 
             instrument_widget.mousePressEvent = lambda e, row=r: self._on_fav_widget_clicked(row)
@@ -779,16 +717,10 @@ class RealAccountTab(QtWidgets.QWidget):
             self.setLayout(layout)
 
         error_header = QtWidgets.QLabel("❌ Ошибка загрузки реального счёта:")
-        error_header.setStyleSheet("font-weight: bold; font-size: 14px; color: red;")
         layout.insertWidget(0, error_header)
 
         error_text = QtWidgets.QTextEdit()
         error_text.setReadOnly(True)
-        error_text.setStyleSheet("""
-            QTextEdit { background-color: #fff0f0; border: 1px solid #ff6b6b;
-                border-radius: 4px; padding: 10px; font-family: Consolas, Monaco, monospace;
-                font-size: 11px; }
-        """)
         error_text.setPlainText(error)
         error_text.setMinimumHeight(300)
         layout.insertWidget(1, error_text)
@@ -865,9 +797,7 @@ class RealAccountTab(QtWidgets.QWidget):
         self.add_plan_order(plan_order)
 
         action = "покупку" if direction == "buy" else "продажу"
-        color = "#1976d2" if direction == "buy" else "#ff9800"
         self.trading_result_text.setText(f"⏳ Выставление заявки на {action} {lots} лотов по {price:.2f}...")
-        self.trading_result_text.setStyleSheet(f"color: {color};")
 
         result = post_order(
             token=REAL_TOKEN,
@@ -883,11 +813,9 @@ class RealAccountTab(QtWidgets.QWidget):
             from real_account.plan_repo import update_plan_order
             update_plan_order(plan_order)
             self.trading_result_text.setText(f"✅ Заявка {result.order_id} выставлена")
-            self.trading_result_text.setStyleSheet("color: #4CAF50;")
             self._refresh_orders()
         else:
             plan_order.mark_rejected()
             from real_account.plan_repo import update_plan_order
             update_plan_order(plan_order)
             self.trading_result_text.setText(f"❌ Ошибка: {result.error or result.message}")
-            self.trading_result_text.setStyleSheet("color: #f44336;")
